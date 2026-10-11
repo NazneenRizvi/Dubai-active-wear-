@@ -1,0 +1,47 @@
+{
+  "name": "icon-activewear",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx server.ts",
+    "build": "vite build",
+    "preview": "node --import tsx server.ts",
+    "start": "node --import tsx server.ts",
+    "lint": "tsc --noEmit",
+    "db:push": "drizzle-kit push --config=src/db/drizzle.config.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^18.0.6",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.3",
+    "express": "^5.2.1",
+    "firebase": "^12.19.0",
+    "firebase-admin": "^14.5.0",
+    "lucide-react": "^0.469.0",
+    "motion": "^11.18.2",
+    "pg": "^8.23.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "^3.10.1",
+    "tsx": "^4.23.15",
+    "vite": "5.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "^10.4.20",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

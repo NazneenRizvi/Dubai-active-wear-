@@ -1,0 +1,6 @@
+{
+  "name": "FITNESS JUNKIES Activewear",
+  "description": "High-performance seamless activewear, sports bras, and athletic apparel engineered for movement and endurance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

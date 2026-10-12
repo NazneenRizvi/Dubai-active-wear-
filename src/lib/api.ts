@@ -1,6 +1,9 @@
 import { auth } from './firebase';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 export async function apiRequest(path: string, options: RequestInit = {}) {
+  const fullUrl = path.startsWith('http') ? path : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   const headers = new Headers(options.headers);
   if (options.body) headers.set('Content-Type', 'application/json');
 
@@ -20,7 +23,7 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch(path, {
+      const response = await fetch(fullUrl, {
         ...options,
         headers,
         signal: options.signal ?? AbortSignal.timeout(12000),

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import cors from 'cors';
 import { requireAuth, type AuthRequest } from './src/middleware/auth.ts';
 import { STORE_OWNER_EMAIL } from './src/config.ts';
 import { databaseConfigured } from './src/db/index.ts';
@@ -22,6 +23,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '256kb' }));
 const isOwner = (req: AuthRequest) => req.user?.email?.toLowerCase().trim() === STORE_OWNER_EMAIL.toLowerCase().trim();
 const requireOwner = (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
@@ -195,8 +197,8 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  // In production (Cloud Run), listen on process.env.PORT. In dev, listen on port 3000 (behind Nginx proxy)
-  const targetPort = PORT;
+  // In production (Render/Cloud Run), listen on process.env.PORT. In dev, listen on port 3000 (behind Nginx proxy)
+  const targetPort = Number(process.env.PORT) || PORT;
 
   const server = app.listen(targetPort, '0.0.0.0', () => {
     console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:${targetPort}`);

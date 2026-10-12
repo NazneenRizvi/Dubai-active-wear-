@@ -698,7 +698,7 @@ export const CheckoutModal: React.FC = () => {
                     <div>
                       <span className="text-[10px] text-neutral-500 uppercase font-mono">Payment Mode</span>
                       <p className="font-bold text-neutral-900">
-                        {formData.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Credit Card (Razorpay)'}
+                        {formData.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Credit / Debit Card (Stripe / Bank Card)'}
                       </p>
                     </div>
                     <button

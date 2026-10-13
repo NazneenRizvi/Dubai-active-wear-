@@ -8,7 +8,11 @@ import {
   Clock,
   MapPin,
   Search,
-  Calendar
+  ExternalLink,
+  Phone,
+  Mail,
+  Calendar,
+  AlertCircle
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
@@ -174,7 +178,7 @@ export const CustomerOrdersModal: React.FC = () => {
             )}
           </div>
           <p className="text-[10px] text-neutral-500 mt-1.5">
-            Tip: Enter your Order ID from checkout receipt to instantly track live delivery.
+            Tip: Enter your Order ID from checkout receipt or confirmation to instantly track live delivery.
           </p>
         </div>
 
@@ -236,88 +240,88 @@ export const CustomerOrdersModal: React.FC = () => {
                       <span>Customer: <strong className="text-neutral-700">{order.customerName}</strong></span>
                     </div>
                   </div>
-                  <div>{getStatusBadge(order.status)}</div>
+                <div>{getStatusBadge(order.status)}</div>
+              </div>
+
+              {/* 4-Stage Visual Live Progress Stepper */}
+              <div className="bg-neutral-50 border border-neutral-200 p-3 sm:p-4 my-1">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                    Live Delivery Tracker
+                  </span>
+                  <span className="text-[10px] font-mono text-neutral-500">
+                    Current Stage:{' '}
+                    <strong className="text-neutral-900 uppercase">
+                      {order.status === 'shipped' ? 'Out for Delivery' : order.status}
+                    </strong>
+                  </span>
                 </div>
 
-                {/* 4-Stage Visual Live Progress Stepper */}
-                <div className="bg-neutral-50 border border-neutral-200 p-3 sm:p-4 my-1">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-                      Live Delivery Tracker
-                    </span>
-                    <span className="text-[10px] font-mono text-neutral-500">
-                      Current Stage:{' '}
-                      <strong className="text-neutral-900 uppercase">
-                        {order.status === 'shipped' ? 'Out for Delivery' : order.status}
-                      </strong>
-                    </span>
-                  </div>
-
-                  <div className="relative flex items-center justify-between px-2 sm:px-4">
-                    {/* Background connecting bar */}
-                    <div className="absolute top-3.5 sm:top-4 left-6 right-6 -translate-y-1/2 h-0.5 bg-neutral-200 z-0" />
-                    {/* Progress active bar */}
-                    <div
-                      className="absolute top-3.5 sm:top-4 left-6 -translate-y-1/2 h-0.5 bg-black transition-all duration-300 z-0"
-                      style={{
-                        width: `${
-                          order.status === 'delivered'
-                            ? 'calc(100% - 3rem)'
-                            : order.status === 'shipped'
-                            ? 'calc(66% - 2rem)'
-                            : order.status === 'processing'
-                            ? 'calc(33% - 1rem)'
-                            : '0%'
-                        }`,
-                      }}
-                    />
-
-                    {[
-                      { step: 1, key: 'confirmed', label: 'Confirmed', icon: Clock },
-                      { step: 2, key: 'processing', label: 'Processing', icon: Package },
-                      { step: 3, key: 'shipped', label: 'Out for Delivery', icon: Truck },
-                      { step: 4, key: 'delivered', label: 'Delivered', icon: CheckCircle },
-                    ].map(({ step, label, icon: StepIcon }) => {
-                      const currentStepNum =
+                <div className="relative flex items-center justify-between px-2 sm:px-4">
+                  {/* Background connecting bar */}
+                  <div className="absolute top-3.5 sm:top-4 left-6 right-6 -translate-y-1/2 h-0.5 bg-neutral-200 z-0" />
+                  {/* Progress active bar */}
+                  <div
+                    className="absolute top-3.5 sm:top-4 left-6 -translate-y-1/2 h-0.5 bg-black transition-all duration-300 z-0"
+                    style={{
+                      width: `${
                         order.status === 'delivered'
-                          ? 4
+                          ? 'calc(100% - 3rem)'
                           : order.status === 'shipped'
-                          ? 3
+                          ? 'calc(66% - 2rem)'
                           : order.status === 'processing'
-                          ? 2
-                          : 1;
-                      const isCompleted = currentStepNum > step;
-                      const isCurrent = currentStepNum === step;
+                          ? 'calc(33% - 1rem)'
+                          : '0%'
+                      }`,
+                    }}
+                  />
 
-                      return (
-                        <div key={step} className="relative z-10 flex flex-col items-center">
-                          <div
-                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
-                              isCurrent
-                                ? 'bg-black border-black text-white shadow-xs'
-                                : isCompleted
-                                ? 'bg-emerald-600 border-emerald-600 text-white'
-                                : 'bg-white border-neutral-300 text-neutral-400'
-                            }`}
-                          >
-                            <StepIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                          </div>
-                          <span
-                            className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-tight mt-1.5 text-center ${
-                              isCurrent
-                                ? 'text-black font-black'
-                                : isCompleted
-                                ? 'text-emerald-700'
-                                : 'text-neutral-400'
-                            }`}
-                          >
-                            {label}
-                          </span>
+                  {[
+                    { step: 1, key: 'confirmed', label: 'Confirmed', icon: Clock },
+                    { step: 2, key: 'processing', label: 'Processing', icon: Package },
+                    { step: 3, key: 'shipped', label: 'Out for Delivery', icon: Truck },
+                    { step: 4, key: 'delivered', label: 'Delivered', icon: CheckCircle },
+                  ].map(({ step, label, icon: StepIcon }) => {
+                    const currentStepNum =
+                      order.status === 'delivered'
+                        ? 4
+                        : order.status === 'shipped'
+                        ? 3
+                        : order.status === 'processing'
+                        ? 2
+                        : 1;
+                    const isCompleted = currentStepNum > step;
+                    const isCurrent = currentStepNum === step;
+
+                    return (
+                      <div key={step} className="relative z-10 flex flex-col items-center">
+                        <div
+                          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                            isCurrent
+                              ? 'bg-black border-black text-white shadow-xs'
+                              : isCompleted
+                              ? 'bg-emerald-600 border-emerald-600 text-white'
+                              : 'bg-white border-neutral-300 text-neutral-400'
+                          }`}
+                        >
+                          <StepIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         </div>
-                      );
-                    })}
-                  </div>
+                        <span
+                          className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-tight mt-1.5 text-center ${
+                            isCurrent
+                              ? 'text-black font-black'
+                              : isCompleted
+                              ? 'text-emerald-700'
+                              : 'text-neutral-400'
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
 
                 {/* Tracking info banner if shipped */}
                 {Boolean((order as Order & { trackingCarrier?: string; trackingNumber?: string }).trackingNumber) && (

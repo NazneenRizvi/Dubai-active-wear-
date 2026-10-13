@@ -60,8 +60,8 @@ export const CustomerOrdersModal: React.FC = () => {
 
   // Filter orders:
   // 1. If customer typed a search query (Order ID, Email, Phone, Name), filter from all orders
-  // 2. If user is logged in, show orders matching user email
-  // 3. If guest / not logged in and no search, show all orders placed in this browser session
+  // 2. Otherwise: if user is logged in, show orders matching user email.
+  // 3. If guest / not logged in and no search, show all orders placed in this browser session.
   const query = searchQuery.trim().toLowerCase();
 
   const displayedOrders: Order[] = orders.filter((order) => {
@@ -237,6 +237,86 @@ export const CustomerOrdersModal: React.FC = () => {
                     </div>
                   </div>
                   <div>{getStatusBadge(order.status)}</div>
+                </div>
+
+                {/* 4-Stage Visual Live Progress Stepper */}
+                <div className="bg-neutral-50 border border-neutral-200 p-3 sm:p-4 my-1">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+                      Live Delivery Tracker
+                    </span>
+                    <span className="text-[10px] font-mono text-neutral-500">
+                      Current Stage:{' '}
+                      <strong className="text-neutral-900 uppercase">
+                        {order.status === 'shipped' ? 'Out for Delivery' : order.status}
+                      </strong>
+                    </span>
+                  </div>
+
+                  <div className="relative flex items-center justify-between px-2 sm:px-4">
+                    {/* Background connecting bar */}
+                    <div className="absolute top-3.5 sm:top-4 left-6 right-6 -translate-y-1/2 h-0.5 bg-neutral-200 z-0" />
+                    {/* Progress active bar */}
+                    <div
+                      className="absolute top-3.5 sm:top-4 left-6 -translate-y-1/2 h-0.5 bg-black transition-all duration-300 z-0"
+                      style={{
+                        width: `${
+                          order.status === 'delivered'
+                            ? 'calc(100% - 3rem)'
+                            : order.status === 'shipped'
+                            ? 'calc(66% - 2rem)'
+                            : order.status === 'processing'
+                            ? 'calc(33% - 1rem)'
+                            : '0%'
+                        }`,
+                      }}
+                    />
+
+                    {[
+                      { step: 1, key: 'confirmed', label: 'Confirmed', icon: Clock },
+                      { step: 2, key: 'processing', label: 'Processing', icon: Package },
+                      { step: 3, key: 'shipped', label: 'Out for Delivery', icon: Truck },
+                      { step: 4, key: 'delivered', label: 'Delivered', icon: CheckCircle },
+                    ].map(({ step, label, icon: StepIcon }) => {
+                      const currentStepNum =
+                        order.status === 'delivered'
+                          ? 4
+                          : order.status === 'shipped'
+                          ? 3
+                          : order.status === 'processing'
+                          ? 2
+                          : 1;
+                      const isCompleted = currentStepNum > step;
+                      const isCurrent = currentStepNum === step;
+
+                      return (
+                        <div key={step} className="relative z-10 flex flex-col items-center">
+                          <div
+                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border-2 transition-colors ${
+                              isCurrent
+                                ? 'bg-black border-black text-white shadow-xs'
+                                : isCompleted
+                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                : 'bg-white border-neutral-300 text-neutral-400'
+                            }`}
+                          >
+                            <StepIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </div>
+                          <span
+                            className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-tight mt-1.5 text-center ${
+                              isCurrent
+                                ? 'text-black font-black'
+                                : isCompleted
+                                ? 'text-emerald-700'
+                                : 'text-neutral-400'
+                            }`}
+                          >
+                            {label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Tracking info banner if shipped */}

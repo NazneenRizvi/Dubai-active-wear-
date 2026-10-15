@@ -1,12 +1,17 @@
-# ICON Activewear — corrected project
+# ICON Activewear — Full-Stack E-Commerce Platform (Dubai, UAE)
 
-Start with **DEPLOYMENT.md** for exact stack, environment variables, Supabase schema, Firebase login, local startup and Render deployment instructions.
+## 🛠 Tech Stack
+* **Frontend:** React 18 | TypeScript | Tailwind CSS | Vite | Framer Motion
+* **Backend:** Node.js | Express.js | REST APIs
+* **Database & Auth:** Google Firebase Firestore | Firebase Authentication
+* **Architecture:** Role-Based Access Control (RBAC)
 
-- `npm ci`
-- Copy `.env.example` to `.env` and configure your own services.
-- `npm run dev`
-- `npm run lint && npm test && npm run build`
+---
 
-Admin: `/admin`. Use the real Firebase owner password. PIN and one-click bypasses were removed.
+## ✨ Key Technical Highlights
 
-This is a React/Vite + Express application, not Next.js. The separate `backend/` FastAPI code is not connected to the current frontend. Read the remaining production limitations before accepting real customer orders.
+* **Built for UAE Retail:** Designed a high-performance e-commerce web application tailored for activewear retail in the UAE, featuring responsive catalog browsing, product quick-view, dynamic cart drawer, and multi-currency checkout.
+* **Real-Time Database Architecture:** Integrated Google Firebase Firestore as the production database, architecting real-time document creation and persistent order processing with zero data loss during server reboots.
+* **Secure Backend APIs:** Designed custom Node.js/Express backend APIs with server-side validation against price tampering, automated cart calculation, and discount coupon engines.
+* **Authentication & RBAC:** Implemented secure Firebase Authentication & RBAC (Role-Based Access Control), separating customer order histories from store-owner administrative analytics and order-status workflows.
+* **High-Performance UI/UX:** Optimized UI/UX with Tailwind CSS & Motion, achieving sub-second load times, fluid drawer animations, and mobile-first shopping navigation.

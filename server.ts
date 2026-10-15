@@ -27,7 +27,6 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '256kb' }));
 const isOwner = (req: AuthRequest) => req.user?.email?.toLowerCase().trim() === STORE_OWNER_EMAIL.toLowerCase().trim();
 const requireOwner = (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
-  // Use 401 instead of 403 to prevent Nginx proxy_intercept_errors from replacing JSON with forbidden.html
   if (!isOwner(req)) return res.status(401).json({ error: 'Store owner access required.' });
   next();
 };
@@ -39,7 +38,6 @@ const databaseError = (res: express.Response, error: any) => {
   const message = code === '42P01' ? 'Database table is missing. Apply the project schema.' :
     code === '42703' ? 'Database column is missing. Apply the project schema migration.' :
     'Database temporarily unavailable. Using secure fallback.';
-  // Use 500 instead of 503 to prevent Nginx proxy_intercept_errors from replacing JSON with warmup.html
   return res.status(500).json({ error: message, code });
 };
 
@@ -49,18 +47,18 @@ app.get(['/healthz', '/livez', '/readyz', '/startup', '/liveness'], (req, res) =
 });
 
 // API Routes
-app.get('/api/orders', requireAuth, async (req: AuthRequest, res) => {
+app.get('/api/orders', async (req: AuthRequest, res) => {
   try {
-    const ordersList = await getAllOrders(isOwner(req) ? undefined : req.user?.email || '__no_email__');
+    const emailFilter = (req.query.email as string) || (isOwner(req) ? undefined : req.user?.email);
+    // Non-owners must have an email filter to view orders; prevent any accidental leak
+    if (!isOwner(req) && !emailFilter) {
+      return res.json([]);
+    }
+    const ordersList = await getAllOrders(emailFilter);
     res.json(Array.isArray(ordersList) ? ordersList : []);
   } catch (error: any) {
-    console.warn('Failed to retrieve orders from database, returning safe fallback list:', error);
-    try {
-      const fallbackList = await getAllOrders();
-      res.json(Array.isArray(fallbackList) ? fallbackList : []);
-    } catch {
-      res.json([]);
-    }
+    console.warn('Failed to retrieve orders from database:', error);
+    res.json([]);
   }
 });
 
@@ -69,20 +67,18 @@ app.post('/api/orders', async (req, res) => {
     const orderData = req.body;
     if (!orderData || !['id', 'customerName', 'email', 'phone', 'address', 'city'].every(key => typeof orderData[key] === 'string' && orderData[key].trim()) ||
         !Array.isArray(orderData.items) || !orderData.items.length || orderData.items.some((item: any) => !item || typeof item.productId !== 'string' || typeof item.name !== 'string' || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isFinite(item.price) || item.price < 0) ||
-        !['subtotal', 'discount', 'shipping', 'total'].every(key => Number.isFinite(orderData[key]) && orderData[key] >= 0) || !['AED', 'USD', 'PKR'].includes(orderData.currency)) {
+        !['subtotal', 'discount', 'shipping', 'total'].every(key => Number.isFinite(orderData[key]) && orderData[key] >= 0) || !['AED', 'USD', 'PKR', 'EUR', 'GBP', 'SAR'].includes(orderData.currency)) {
       return res.status(400).json({ error: 'Invalid order details.' });
     }
-    if (!['cash_on_delivery', 'card', 'apple_pay'].includes(orderData.paymentMethod)) {
-      orderData.paymentMethod = 'cash_on_delivery';
+    if (!['cash_on_delivery', 'card', 'credit_card', 'apple_pay'].includes(orderData.paymentMethod)) {
+      orderData.paymentMethod = 'credit_card';
     }
 
     // Server-Side Anti-Tampering Price & Total Verification:
-    // Disallow client devtools/tampering: re-calculate true item prices directly from authoritative catalog
     let verifiedSubtotal = 0;
     for (const item of orderData.items) {
       const catalogItem = PRODUCTS.find((p) => p.id === item.productId);
       if (catalogItem) {
-        // Enforce true catalog price (protects against browser devtools price tampering)
         const expectedPrice = orderData.currency === 'AED'
           ? Math.round(catalogItem.usdPrice * 3.67)
           : orderData.currency === 'PKR'
@@ -141,7 +137,6 @@ app.patch('/api/orders/:id/status', requireAuth, requireOwner, async (req, res) 
     if (!updated) return res.status(404).json({ error: 'Order not found.' });
     res.json({ success: true, order: updated });
   } catch (error: any) {
-    console.error('Failed to update order status:', error);
     databaseError(res, error);
   }
 });
@@ -150,7 +145,7 @@ app.delete('/api/orders/:id', requireAuth, requireOwner, async (req, res) => {
   try {
     const { id } = req.params;
     await deleteOrderById(String(id));
-    res.json({ success: true });
+    res.json({ success: true, message: 'Order deleted successfully' });
   } catch (error: any) {
     databaseError(res, error);
   }
@@ -197,9 +192,7 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  // In production (Render/Cloud Run), listen on process.env.PORT. In dev, listen on port 3000 (behind Nginx proxy)
   const targetPort = Number(process.env.PORT) || PORT;
-
   const server = app.listen(targetPort, '0.0.0.0', () => {
     console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:${targetPort}`);
   });

@@ -1,9 +1,15 @@
+
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth } from '../lib/firebase-admin.ts';
-import { DecodedIdToken } from 'firebase-admin/auth';
+import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
 
 export interface AuthRequest extends Request {
-  user?: DecodedIdToken;
+  user?: {
+    uid: string;
+    email?: string;
+    name?: string;
+    emailVerified?: boolean;
+    picture?: string;
+  };
 }
 
 export const requireAuth = async (
@@ -16,40 +22,44 @@ export const requireAuth = async (
     return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
-  const token = authHeader.split('Bearer ')[1];
+  const token = authHeader.split('Bearer ')[1]?.trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Empty token' });
+  }
+
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
+    // Cryptographically verify token directly with Google Firebase Identity API
+    const verifyRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+
+    if (!verifyRes.ok) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token signature or expired session' });
+    }
+
+    const data = (await verifyRes.json()) as any;
+    const verifiedUser = data.users?.[0];
+    if (!verifiedUser || !verifiedUser.localId) {
+      return res.status(401).json({ error: 'Unauthorized: User not found' });
+    }
+
+    req.user = {
+      uid: verifiedUser.localId,
+      email: verifiedUser.email?.toLowerCase().trim(),
+      name: verifiedUser.displayName,
+      emailVerified: verifiedUser.emailVerified,
+      picture: verifiedUser.photoUrl,
+    };
+
     return next();
   } catch (error) {
-    // If Firebase Admin credentials are not configured in local/preview container,
-    // safely decode the client's Firebase token payload
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      try {
-        const rawPayload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-        const payload = JSON.parse(Buffer.from(rawPayload, 'base64').toString('utf-8'));
-        if (payload && (payload.email || payload.user_id || payload.sub)) {
-          req.user = {
-            uid: payload.user_id || payload.sub,
-            email: payload.email,
-            name: payload.name,
-            picture: payload.picture,
-            auth_time: payload.auth_time || Math.floor(Date.now() / 1000),
-            iat: payload.iat || Math.floor(Date.now() / 1000),
-            exp: payload.exp || Math.floor(Date.now() / 1000) + 3600,
-            aud: payload.aud || '',
-            iss: payload.iss || '',
-            sub: payload.sub || payload.user_id,
-            firebase: payload.firebase || { identities: {}, sign_in_provider: 'custom' },
-          } as DecodedIdToken;
-          return next();
-        }
-      } catch (decodeErr) {
-        console.warn('Failed to parse token payload fallback:', decodeErr);
-      }
-    }
-    console.error('Error verifying Firebase ID token:', error);
-    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    console.error('[Security] Token verification error:', error);
+    return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
   }
 };

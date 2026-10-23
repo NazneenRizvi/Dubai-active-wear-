@@ -40,30 +40,17 @@ if (databaseConfigured) {
         code: (error as Error & { code?: string }).code,
         message: error.message,
       });
-      disablePostgres(error);
+
     });
     activePool = pool;
     dbInstance = drizzle(pool, { schema });
   } catch (err) {
-    console.warn('[AI Studio] PostgreSQL initialization failed — using mock store', err);
+    console.warn('[AI Studio] PostgreSQL initialization failed — database unavailable', err);
     dbInstance = null;
   }
 } else {
-  console.log('[AI Studio] PostgreSQL not configured or URL is non-postgres — using in-memory store for orders and dashboard');
+  console.log('[AI Studio] PostgreSQL not configured or URL is non-postgres — checkout disabled until a database is configured');
 }
 
 export let db = dbInstance;
-
-export function disablePostgres(reason?: any) {
-  if (dbInstance) {
-    console.warn('[PostgreSQL disabled — falling back to in-memory store]:', reason?.message || reason);
-    dbInstance = null;
-    db = null;
-    if (activePool) {
-      activePool.end().catch(() => {});
-      activePool = null;
-    }
-  }
-}
-
 

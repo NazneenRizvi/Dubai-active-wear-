@@ -75,8 +75,8 @@ export interface Order {
   shipping: number;
   total: number;
   currency: string;
-  paymentMethod: 'credit_card' | 'cash_on_delivery' | 'apple_pay';
-  status: 'confirmed' | 'processing' | 'shipped' | 'delivered';
+  paymentMethod: 'credit_card' | 'apple_pay';
+  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   createdAt: string;
   notes?: string;
 }
@@ -135,3 +135,4 @@ export interface CurrencyConfig {
   exchangeRateFromUsd: number; // e.g. 1 USD = 277.5 PKR
   format: (amountUsd: number) => string;
 }
+

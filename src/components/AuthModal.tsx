@@ -7,7 +7,7 @@ import { useCart } from '../context/CartContext';
 import { STORE_OWNER_CONFIG, STORE_OWNER_EMAIL } from '../config';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, closeAuthModal, authModalMode, login, register } = useAuth();
+  const { isAuthModalOpen, closeAuthModal, authModalMode, login, register, loginWithGoogle } = useAuth();
   const { setIsOwnerOrdersOpen } = useCart();
 
   const [mode, setMode] = useState<'login' | 'register'>(authModalMode);
@@ -79,7 +79,7 @@ export const AuthModal: React.FC = () => {
       } else {
         const res = await register(name, email, password);
         if (res.success) {
-          setSuccess('Account created successfully!');
+          setSuccess('Account created. Check your inbox to verify your email before checkout.');
           setTimeout(() => {
             closeAuthModal();
           }, 800);
@@ -176,6 +176,16 @@ export const AuthModal: React.FC = () => {
           </div>
         )}
 
+        <button type="button" disabled={isLoading} onClick={async () => {
+          setIsLoading(true); setError(''); setSuccess('');
+          try {
+            const result = await loginWithGoogle();
+            if (result.success) closeAuthModal();
+            else setError(result.message || 'Google sign-in failed.');
+          } finally { setIsLoading(false); }
+        }} className="w-full mb-5 py-3 border border-neutral-300 hover:border-black text-sm font-bold disabled:opacity-50">
+          Continue with Google
+        </button>
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'register' && (
             <div>
@@ -279,3 +289,4 @@ export const AuthModal: React.FC = () => {
     </div>
   );
 };
+

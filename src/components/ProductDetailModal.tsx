@@ -27,7 +27,7 @@ const DEFAULT_REVIEWS: Review[] = [
     userName: 'Sana M.',
     rating: 5,
     title: 'Extremely soft microfiber',
-    comment: 'Better than imported brands priced 3x higher. Delivered in 2 days to Karachi via COD.',
+    comment: 'Better than imported brands priced 3x higher. Delivered in 2 days to Karachi with tracked shipping.',
     date: '1 week ago',
     isVerified: true
   },
@@ -49,10 +49,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onClose }) => {
 
   const { formatPrice } = useCurrency();
-  const { addToCart, ownerWhatsApp, toggleWishlist, isInWishlist, setSelectedProductForDetail } = useCart();
+  const { addToCart, buyNow, ownerWhatsApp, toggleWishlist, isInWishlist, setSelectedProductForDetail } = useCart();
 
   const [selectedColor, setSelectedColor] = useState<ProductColor>(product.colors[0]);
-  const [selectedSize, setSelectedSize] = useState<ProductSize>(product.sizes[1] || 'S');
+  const [selectedSize, setSelectedSize] = useState<ProductSize>(product.sizes[0]);
   const [quantity, setQuantity] = useState<number>(1);
   const [isAdded, setIsAdded] = useState<boolean>(false);
   const [activeImage, setActiveImage] = useState<string>(product.image);
@@ -75,24 +75,6 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
 
   const isWishlisted = isInWishlist(product.id);
 
-  // WhatsApp order link
-  const whatsAppOrderUrl = (() => {
-    const cleanPhone = ownerWhatsApp.replace(/[^0-9]/g, '');
-    const priceText = formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined);
-    const msg = encodeURIComponent(
-      `*Assalam-o-Alaikum ICON ACTIVEWEAR!*\n\n` +
-      `I want to place an order for:\n` +
-      `• *Product:* ${product.name}\n` +
-      `• *SKU:* ICON-${product.slug.toUpperCase().slice(0, 10)}\n` +
-      `• *Color:* ${selectedColor.name}\n` +
-      `• *Size:* ${selectedSize}\n` +
-      `• *Quantity:* ${quantity}\n` +
-      `• *Total Price:* ${priceText}\n\n` +
-      `Please confirm Cash on Delivery (COD) dispatch to my address. Shukriya!`
-    );
-    return `https://wa.me/${cleanPhone}?text=${msg}`;
-  })();
-
   // Gallery images (main image + hover image + category alternates)
   const galleryImages = [
     product.image,
@@ -106,7 +88,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
   };
 
   const handleAdd = () => {
-    addToCart(product, selectedColor, selectedSize, quantity);
+    if (!addToCart(product, selectedColor, selectedSize, quantity)) return;
     setIsAdded(true);
     setTimeout(() => {
       setIsAdded(false);
@@ -260,7 +242,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   </span>
                 )}
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 uppercase tracking-wider">
-                  Cash on Delivery
+                  Secure Online Payment
                 </span>
               </div>
 
@@ -371,7 +353,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                 <div className="flex items-center gap-3">
                   <button
                     onClick={handleAdd}
-                    disabled={isAdded}
+                    disabled={isAdded || !product.inStock}
                     className="flex-1 py-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs sm:text-sm font-black tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {isAdded ? (
@@ -382,7 +364,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                     ) : (
                       <>
                         <ShoppingBag className="w-4 h-4" />
-                        <span>ADD TO BAG · {formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined)}</span>
+                        <span>ADD TO CART · {formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined)}</span>
                       </>
                     )}
                   </button>
@@ -400,16 +382,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   </button>
                 </div>
 
-                {/* Direct WhatsApp Order CTA */}
-                <a
-                  href={whatsAppOrderUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-black tracking-wider uppercase transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 fill-white" />
-                  <span>Order Directly via WhatsApp (COD)</span>
-                </a>
+                <button onClick={() => { if (buyNow(product, selectedColor, selectedSize, quantity)) onClose(); }} disabled={!product.inStock} className="w-full py-3 border border-black text-black text-xs font-black tracking-wider uppercase disabled:opacity-40">BUY IT NOW</button>
               </div>
 
               {/* Value Props Strip */}
@@ -489,20 +462,20 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   )}
                 </div>
 
-                {/* 3. Shipping & COD Policy */}
+                {/* 3. Shipping & Payment Policy */}
                 <div className="border border-neutral-200">
                   <button
                     onClick={() => toggleAccordion('shipping')}
                     className="w-full px-4 py-3 bg-neutral-50 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-900 cursor-pointer"
                   >
-                    <span>Shipping & COD Terms (Pakistan)</span>
+                    <span>Shipping & Payment Terms</span>
                     {openAccordions.shipping ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
                   {openAccordions.shipping && (
                     <div className="p-4 bg-white text-xs text-neutral-600 space-y-2">
                       <p>• <strong>Dubai Delivery:</strong> Same-day or 24 hours via courier express.</p>
                       <p>• <strong>All Other Emirates (Abu Dhabi, Sharjah, Ajman, RAK, etc.):</strong> 1–2 business days.</p>
-                      <p>• <strong>Cards, Apple Pay & Cash on Delivery (COD):</strong> Pay securely online or at doorstep in AED.</p>
+                      <p>• <strong>Cards & Apple Pay:</strong> Pay securely through our online checkout.</p>
                       <p>• <strong>Free Delivery:</strong> Automatically applied at checkout on all orders above 150 AED.</p>
                     </div>
                   )}
@@ -688,7 +661,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
 
             <button
               onClick={handleAdd}
-              disabled={isAdded}
+              disabled={isAdded || !product.inStock}
               className="py-2.5 px-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs font-black tracking-wider uppercase transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
             >
               {isAdded ? (
@@ -699,7 +672,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
               ) : (
                 <>
                   <ShoppingBag className="w-3.5 h-3.5" />
-                  <span>ADD TO BAG</span>
+                  <span>ADD TO CART</span>
                 </>
               )}
             </button>
@@ -709,3 +682,4 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
     </div>
   );
 };
+

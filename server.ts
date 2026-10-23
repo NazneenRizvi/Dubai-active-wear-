@@ -1,210 +1,126 @@
 import 'dotenv/config';
 import cors from 'cors';
+import express from 'express';
+import Stripe from 'stripe';
+import { randomUUID } from 'node:crypto';
+import { createServer as createViteServer } from 'vite';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { requireAuth, type AuthRequest } from './src/middleware/auth.ts';
 import { STORE_OWNER_EMAIL } from './src/config.ts';
-import { databaseConfigured } from './src/db/index.ts';
-import { PRODUCTS } from './src/data/products.ts';
-import express from 'express';
-import { createServer as createViteServer } from 'vite';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import {
-  getAllOrders,
-  insertOrder,
-  updateOrderState,
-  deleteOrderById,
-  getLiveDashboardStats,
-} from './src/db/orders.ts';
+import { db } from './src/db/index.ts';
+import { quoteCheckout, shippingDetails } from './src/lib/checkout.ts';
+import { getAllOrders, insertOrder, confirmPaidOrder, updateOrderState, deleteOrderById, getLiveDashboardStats } from './src/db/orders.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-const PORT = 3000;
-
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '256kb' }));
-const isOwner = (req: AuthRequest) => req.user?.email?.toLowerCase().trim() === STORE_OWNER_EMAIL.toLowerCase().trim();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export const app = express();
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const appUrl = process.env.APP_URL?.replace(/\/$/, '');
+const allowedOrigins = [appUrl, ...(process.env.CORS_ORIGINS || '').split(',')].filter(Boolean);
+app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin) || (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin))) }));
+const isOwner = (req: AuthRequest) => !!req.user?.emailVerified && req.user.email === STORE_OWNER_EMAIL.toLowerCase().trim();
 const requireOwner = (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
-  if (!isOwner(req)) return res.status(401).json({ error: 'Store owner access required.' });
+  if (!isOwner(req)) return res.status(403).json({ error: 'Store owner access required.' });
   next();
 };
-const databaseError = (res: express.Response, error: any) => {
-  let cause = error;
-  for (let depth = 0; depth < 5 && cause?.cause && !cause?.code; depth++) cause = cause.cause;
-  const code = typeof cause?.code === 'string' ? cause.code : 'DATABASE_UNAVAILABLE';
-  console.error('[Database query]', { code, message: cause?.message });
-  const message = code === '42P01' ? 'Database table is missing. Apply the project schema.' :
-    code === '42703' ? 'Database column is missing. Apply the project schema migration.' :
-    'Database temporarily unavailable. Using secure fallback.';
-  return res.status(500).json({ error: message, code });
+const requireVerifiedEmail = (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
+  if (!req.user?.email || !req.user.emailVerified) return res.status(403).json({ error: 'Verify your email using the link in your inbox, then sign in again.' });
+  next();
 };
-
-// Health check endpoints for Cloud Run
-app.get(['/healthz', '/livez', '/readyz', '/startup', '/liveness'], (req, res) => {
-  res.status(200).send('OK');
-});
-
-// API Routes
-app.get('/api/orders', async (req: AuthRequest, res) => {
+const serverError = (res: express.Response, error: unknown) => {
+  console.error('[API failed]', error instanceof Error ? error.message : 'Unknown error');
+  return res.status(503).json({ error: 'The service is temporarily unavailable. Please retry. Your order has not been confirmed.' });
+};
+async function confirmSession(session: Stripe.Checkout.Session) {
+  if (session.payment_status !== 'paid' || session.mode !== 'payment' || !session.metadata?.orderId || !session.metadata?.email || session.amount_total == null || !session.currency) throw new Error('Payment is not complete.');
+  return confirmPaidOrder(session.metadata.orderId, session.metadata.email, session.currency, session.amount_total);
+}
+// Stripe requires the untouched request bytes for signature verification.
+app.post('/api/payments/webhook', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.sendStatus(503);
+  let event: Stripe.Event;
+  try { event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'] as string, process.env.STRIPE_WEBHOOK_SECRET); }
+  catch { return res.status(400).json({ error: 'Invalid webhook signature.' }); }
   try {
-    const emailFilter = (req.query.email as string) || (isOwner(req) ? undefined : req.user?.email);
-    // Non-owners must have an email filter to view orders; prevent any accidental leak
-    if (!isOwner(req) && !emailFilter) {
-      return res.json([]);
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      if (session.payment_status === 'paid') await confirmSession(session);
     }
-    const ordersList = await getAllOrders(emailFilter);
-    res.json(Array.isArray(ordersList) ? ordersList : []);
-  } catch (error: any) {
-    console.warn('Failed to retrieve orders from database:', error);
-    res.json([]);
-  }
+    res.json({ received: true });
+  } catch (error) { serverError(res, error); }
 });
-
-app.post('/api/orders', async (req, res) => {
+app.use(express.json({ limit: '256kb' }));
+app.get(['/healthz', '/livez', '/startup', '/liveness'], (_req, res) => { res.send('OK'); });
+app.get('/readyz', async (_req, res) => {
+  if (!db) return res.status(503).send('Database unavailable');
+  try { await db.execute('select 1'); res.send('OK'); } catch { res.status(503).send('Database unavailable'); }
+});
+app.get('/api/orders', requireAuth, requireVerifiedEmail, async (req: AuthRequest, res) => {
+  // A customer's filter always comes from the verified identity, never the URL.
+  const email = isOwner(req) ? (typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : undefined) : req.user!.email;
+  try { res.json(await getAllOrders(email)); } catch (error) { serverError(res, error); }
+});
+// An order can only be created by the hosted payment checkout flow.
+app.post('/api/orders', requireAuth, (_req, res) => { res.status(405).json({ error: 'Use secure checkout to place an order.' }); });
+app.post('/api/checkout/quote', requireAuth, requireVerifiedEmail, (req, res) => {
+  try { res.json(quoteCheckout(req.body)); } catch (error) { res.status(400).json({ error: (error as Error).message }); }
+});
+app.post('/api/checkout/session', requireAuth, requireVerifiedEmail, async (req: AuthRequest, res) => {
+  if (!stripe || !appUrl || !db || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).json({ error: 'Online checkout is temporarily unavailable. Please try again later.' });
+  let quote: ReturnType<typeof quoteCheckout>, details: ReturnType<typeof shippingDetails>;
+  try { quote = quoteCheckout(req.body); details = shippingDetails(req.body); }
+  catch (error) { return res.status(400).json({ error: (error as Error).message }); }
   try {
-    const orderData = req.body;
-    if (!orderData || !['id', 'customerName', 'email', 'phone', 'address', 'city'].every(key => typeof orderData[key] === 'string' && orderData[key].trim()) ||
-        !Array.isArray(orderData.items) || !orderData.items.length || orderData.items.some((item: any) => !item || typeof item.productId !== 'string' || typeof item.name !== 'string' || !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isFinite(item.price) || item.price < 0) ||
-        !['subtotal', 'discount', 'shipping', 'total'].every(key => Number.isFinite(orderData[key]) && orderData[key] >= 0) || !['AED', 'USD', 'PKR', 'EUR', 'GBP', 'SAR'].includes(orderData.currency)) {
-      return res.status(400).json({ error: 'Invalid order details.' });
-    }
-    if (!['cash_on_delivery', 'card', 'credit_card', 'apple_pay'].includes(orderData.paymentMethod)) {
-      orderData.paymentMethod = 'credit_card';
-    }
-
-    // Server-Side Anti-Tampering Price & Total Verification:
-    let verifiedSubtotal = 0;
-    for (const item of orderData.items) {
-      const catalogItem = PRODUCTS.find((p) => p.id === item.productId);
-      if (catalogItem) {
-        const expectedPrice = orderData.currency === 'AED'
-          ? Math.round(catalogItem.usdPrice * 3.67)
-          : orderData.currency === 'PKR'
-          ? catalogItem.pkrPrice
-          : catalogItem.usdPrice;
-        item.price = expectedPrice;
-        item.name = catalogItem.name;
-      }
-      verifiedSubtotal += item.price * item.quantity;
-    }
-
-    orderData.subtotal = Math.round(verifiedSubtotal * 100) / 100;
-
-    // Cap promo discount to maximum valid allowable discount (max 40% from FLASH40)
-    const maxDiscount = orderData.subtotal * 0.40;
-    if (Number(orderData.discount) > maxDiscount) {
-      orderData.discount = Math.round(maxDiscount * 100) / 100;
-    } else {
-      orderData.discount = Math.round(Number(orderData.discount || 0) * 100) / 100;
-    }
-
-    // Free shipping threshold: 150 AED across UAE, PKR 8,000 in PK, or USD 28
-    const isFreeShipping = orderData.currency === 'AED'
-      ? orderData.subtotal >= 150
-      : orderData.currency === 'PKR'
-      ? orderData.subtotal >= 8000
-      : orderData.subtotal >= 28;
-    orderData.shipping = isFreeShipping
-      ? 0
-      : orderData.currency === 'AED'
-      ? 25
-      : orderData.currency === 'PKR'
-      ? 250
-      : 5.99;
-
-    // True server-calculated total — cannot be spoofed by client tools
-    orderData.total = Math.max(0, Math.round((orderData.subtotal - orderData.discount + orderData.shipping) * 100) / 100);
-
-    orderData.email = orderData.email.trim().toLowerCase();
-    orderData.status = 'confirmed';
-    const newOrder = await insertOrder(orderData);
-    console.log(`[VERIFIED LIVE ORDER LOGGED] #${orderData.id} - ${orderData.customerName} - ${orderData.currency} ${orderData.total}`);
-    res.status(201).json({ success: true, order: newOrder });
-  } catch (error: any) {
-    console.error('Failed to create order in database:', error);
-    databaseError(res, error);
-  }
+    const id = `ICON-${randomUUID()}`;
+    // Persist first: a database failure must prevent redirecting a customer to payment.
+    await insertOrder({ ...details, ...quote, id, email: req.user!.email!, status: 'pending', paymentMethod: 'credit_card' });
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment', allowed_payment_method_types: ['card'], customer_email: req.user!.email,
+      client_reference_id: id, metadata: { orderId: id, uid: req.user!.uid, email: req.user!.email! },
+      line_items: [{ price_data: { currency: quote.currency.toLowerCase(), unit_amount: Math.round(quote.total * 100), product_data: { name: `ICON Activewear order ${id}`, description: quote.items.map(item => `${item.name} (${item.color}, ${item.size}) × ${item.quantity}`).join('; ').slice(0, 500) } }, quantity: 1 }],
+      success_url: `${appUrl}/?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/?payment=cancelled`,
+    }, { idempotencyKey: id });
+    if (!session.url) throw new Error('Checkout URL missing.');
+    res.json({ checkoutUrl: session.url });
+  } catch (error) { serverError(res, error); }
 });
-
+app.get('/api/checkout/session/:id', requireAuth, requireVerifiedEmail, async (req: AuthRequest, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Payments are unavailable.' });
+  try {
+    const session = await stripe.checkout.sessions.retrieve(String(req.params.id));
+    if (session.metadata?.uid !== req.user!.uid || session.metadata?.email !== req.user!.email) return res.sendStatus(403);
+    if (session.payment_status !== 'paid') return res.status(409).json({ error: 'Payment is still processing. Check your orders again shortly.' });
+    res.json({ order: await confirmSession(session) });
+  } catch (error) { serverError(res, error); }
+});
 app.patch('/api/orders/:id/status', requireAuth, requireOwner, async (req, res) => {
+  const { status, trackingCarrier, trackingNumber } = req.body;
+  if (!['processing', 'shipped', 'delivered', 'cancelled'].includes(status) || [trackingCarrier, trackingNumber].some(value => value !== undefined && (typeof value !== 'string' || value.length > 200))) return res.status(400).json({ error: 'Invalid order update.' });
   try {
-    const { id } = req.params;
-    const { status, trackingCarrier, trackingNumber } = req.body;
-    if (!['confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].includes(status)) return res.status(400).json({ error: 'Invalid status.' });
-    const updated = await updateOrderState(String(id), status, trackingCarrier, trackingNumber);
-    if (!updated) return res.status(404).json({ error: 'Order not found.' });
+    const updated = await updateOrderState(String(req.params.id), status, trackingCarrier, trackingNumber);
+    if (!updated) return res.status(404).json({ error: 'Order not found or payment is pending.' });
     res.json({ success: true, order: updated });
-  } catch (error: any) {
-    databaseError(res, error);
-  }
+  } catch (error) { serverError(res, error); }
 });
-
 app.delete('/api/orders/:id', requireAuth, requireOwner, async (req, res) => {
-  try {
-    const { id } = req.params;
-    await deleteOrderById(String(id));
-    res.json({ success: true, message: 'Order deleted successfully' });
-  } catch (error: any) {
-    databaseError(res, error);
-  }
+  try { res.json(await deleteOrderById(String(req.params.id))); } catch (error) { serverError(res, error); }
 });
-
-// Live Dashboard Stats Route
-app.get('/api/dashboard/stats', requireAuth, requireOwner, async (req, res) => {
-  try {
-    const stats = await getLiveDashboardStats();
-    res.json(stats);
-  } catch (error: any) {
-    console.error('Failed to calculate live stats, returning zero-state fallback:', error);
-    databaseError(res, error);
-  }
+app.get('/api/dashboard/stats', requireAuth, requireOwner, async (_req, res) => {
+  try { res.json(await getLiveDashboardStats()); } catch (error) { serverError(res, error); }
 });
-
-app.get('/api/download-project', (req, res) => {
-  const zipPath = path.resolve(__dirname, 'public/dubai-activewear.zip');
-  if (fs.existsSync(zipPath)) {
-    res.download(zipPath, 'Dubai-Activewear-Project.zip');
-  } else {
-    res.status(404).send('Project archive not found');
-  }
-});
-
-app.use('/api', (req, res) => { res.status(404).json({ error: 'API route not found.' }); });
-
-// Static or Vite Middleware
+app.use('/api', (_req, res) => { res.status(404).json({ error: 'API route not found.' }); });
 async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
-  const indexHtml = path.join(distPath, 'index.html');
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  if (isProduction && fs.existsSync(indexHtml)) {
+  if (process.env.NODE_ENV === 'production') {
+    if (!fs.existsSync(path.join(distPath, 'index.html'))) throw new Error('Run npm run build before starting production.');
     app.use(express.static(distPath));
-    app.use((req, res) => {
-      res.sendFile(indexHtml);
-    });
+    app.use((_req, res) => { res.sendFile(path.join(distPath, 'index.html')); });
   } else {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   }
-
-  const targetPort = Number(process.env.PORT) || PORT;
-  const server = app.listen(targetPort, '0.0.0.0', () => {
-    console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:${targetPort}`);
-  });
-
-  server.on('error', (err: any) => {
-    if (err.code === 'EADDRINUSE' && targetPort !== 3000) {
-      console.log(`Port ${targetPort} in use, falling back to 3000...`);
-      app.listen(3000, '0.0.0.0', () => {
-        console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:3000`);
-      });
-    }
-  });
+  app.listen(Number(process.env.PORT) || 3000, '0.0.0.0', () => console.log('ICON Activewear server ready'));
 }
-
-startServer();
+if (process.env.NODE_ENV !== 'test') void startServer();

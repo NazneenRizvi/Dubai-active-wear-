@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
   postal_code text DEFAULT '', country text DEFAULT '', currency text NOT NULL DEFAULT 'USD',
   subtotal double precision NOT NULL, discount double precision NOT NULL DEFAULT 0,
   shipping double precision NOT NULL DEFAULT 0, total double precision NOT NULL,
-  status text NOT NULL DEFAULT 'confirmed', payment_method text NOT NULL DEFAULT 'cash_on_delivery',
+  status text NOT NULL DEFAULT 'pending', payment_method text NOT NULL DEFAULT 'credit_card',
   shipping_method text NOT NULL DEFAULT 'standard', tracking_carrier text, tracking_number text,
   notes text, created_at timestamp DEFAULT now()
 );
@@ -35,4 +35,7 @@ ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 -- No public policies: this application accesses the DB through its trusted Express server.
 -- Previously rounded decimals or missing legacy currency cannot be recovered automatically.
+ALTER TABLE public.orders ALTER COLUMN payment_method SET DEFAULT 'credit_card';
+ALTER TABLE public.orders ALTER COLUMN status SET DEFAULT 'pending';
 COMMIT;
+

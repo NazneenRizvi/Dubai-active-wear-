@@ -98,7 +98,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       aria-label="Mobile Bottom Navigation"
       className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/98 backdrop-blur-md border-t border-neutral-200 px-1 py-1.5 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] pb-[max(env(safe-area-inset-bottom),0.5rem)]"
     >
-      <div className="grid grid-cols-6 items-center text-center">
+      <div className={`grid ${isAuthenticated ? 'grid-cols-6' : 'grid-cols-5'} items-center text-center}`}>
         {/* 1. Home */}
         <button
           type="button"
@@ -164,6 +164,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           {isSavedActive && <span className="absolute bottom-0 w-3 h-0.5 bg-black rounded-full" />}
         </button>
 
+        {isAuthenticated && <>
         {/* 5. Bag (Cart) */}
         <button
           type="button"
@@ -185,6 +186,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           {isBagActive && <span className="absolute bottom-0 w-3 h-0.5 bg-black rounded-full" />}
         </button>
 
+        </>}
         {/* 6. Account */}
         <button
           type="button"
@@ -204,3 +206,4 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     </nav>
   );
 };
+

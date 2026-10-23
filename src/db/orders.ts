@@ -1,256 +1,60 @@
-import { db, disablePostgres } from './index.ts';
+import { db } from './index.ts';
 import { normalizeOrders } from '../lib/orders.ts';
 import { orders, orderItems } from './schema.ts';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 
 export interface OrderInput {
-  id: string;
-  customerName: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  postalCode?: string;
-  country?: string;
-  currency?: string;
-  subtotal: number;
-  discount?: number;
-  shipping?: number;
-  total: number;
-  status?: string;
-  paymentMethod?: string;
-  shippingMethod?: string;
-  trackingCarrier?: string;
-  trackingNumber?: string;
-  notes?: string;
-  items?: Array<{
-    productId: string;
-    name: string;
-    color: string;
-    size: string;
-    quantity: number;
-    price: number;
-    image?: string;
-  }>;
+  id: string; customerName: string; email: string; phone: string; address: string; city: string;
+  postalCode?: string; country?: string; currency: string; subtotal: number; discount: number;
+  shipping: number; total: number; status: string; paymentMethod: string; shippingMethod?: string;
+  items: Array<{ productId: string; name: string; color: string; size: string; quantity: number; price: number; image?: string }>;
 }
-
-interface InMemoryOrder {
-  id: string;
-  customerName: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  postalCode?: string;
-  country?: string;
-  currency: string;
-  subtotal: number;
-  discount: number;
-  shipping: number;
-  total: number;
-  status: string;
-  paymentMethod: string;
-  shippingMethod: string;
-  trackingCarrier?: string;
-  trackingNumber?: string;
-  notes?: string;
-  createdAt: string;
-  items: Array<{
-    productId: string;
-    name: string;
-    color: string;
-    size: string;
-    quantity: number;
-    price: number;
-    image?: string;
-  }>;
+function database() {
+  if (!db) throw new Error('Database is unavailable. No order has been saved.');
+  return db;
 }
-
-// Real in-memory orders store — starts clean with 0 orders for real sales only
-const memoryOrders: InMemoryOrder[] = [];
-
 export async function getAllOrders(email?: string) {
-  if (db) {
-    try {
-      const rawOrders = await db
-        .select()
-        .from(orders)
-        .where(email ? eq(orders.email, email) : undefined)
-        .orderBy(desc(orders.createdAt));
-      const allItems = await db.select().from(orderItems);
-
-      return normalizeOrders(
-        rawOrders.map((ord: any) => {
-          const itemsForOrder = allItems.filter((it: any) => it.orderId === ord.id);
-          return {
-            ...ord,
-            createdAt: ord.createdAt?.toISOString() || '',
-            items: itemsForOrder.map((it: any) => ({
-              productId: it.productId,
-              name: it.name,
-              color: it.color,
-              size: it.size,
-              quantity: it.quantity,
-              price: it.price,
-              image: it.image || '',
-            })),
-          };
-        })
-      );
-    } catch (error: any) {
-      console.warn('[PostgreSQL query fallback] Using in-memory orders:', error?.message || error);
-      disablePostgres(error);
-    }
-  }
-
-  // In-memory fallback
-  const filtered = email
-    ? memoryOrders.filter((o) => (o.email || '').toLowerCase().trim() === email.toLowerCase().trim())
-    : memoryOrders;
-
-  return normalizeOrders(filtered);
+  const connection = database();
+  const rows = await connection.select().from(orders).where(email ? eq(orders.email, email) : undefined).orderBy(desc(orders.createdAt));
+  if (!rows.length) return [];
+  const items = await connection.select().from(orderItems).where(inArray(orderItems.orderId, rows.map(row => row.id)));
+  return normalizeOrders(rows.map(row => ({ ...row, createdAt: row.createdAt?.toISOString() || '', items: items.filter(item => item.orderId === row.id) })));
 }
-
 export async function insertOrder(data: OrderInput) {
-  const newMemoryOrder: InMemoryOrder = {
-    id: data.id,
-    customerName: data.customerName,
-    email: data.email,
-    phone: data.phone,
-    address: data.address,
-    city: data.city,
-    postalCode: data.postalCode || '',
-    country: data.country || '',
-    currency: data.currency || 'AED',
-    subtotal: Number(data.subtotal) || 0,
-    discount: Number(data.discount) || 0,
-    shipping: Number(data.shipping) || 0,
-    total: Number(data.total) || 0,
-    status: data.status || 'confirmed',
-    paymentMethod: data.paymentMethod || 'cash_on_delivery',
-    shippingMethod: data.shippingMethod || 'standard',
-    trackingCarrier: data.trackingCarrier || '',
-    trackingNumber: data.trackingNumber || '',
-    notes: data.notes || '',
-    createdAt: new Date().toISOString(),
-    items: (data.items || []).map((item) => ({
-      productId: item.productId,
-      name: item.name,
-      color: item.color,
-      size: item.size,
-      quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
-      price: Number(item.price) || 0,
-      image: item.image || '',
-    })),
-  };
-
-  memoryOrders.unshift(newMemoryOrder);
-
-  if (db) {
-    try {
-      await db.transaction(async (tx: any) => {
-        await tx.insert(orders).values({
-          id: data.id,
-          customerName: data.customerName,
-          email: data.email,
-          phone: data.phone,
-          address: data.address,
-          city: data.city,
-          postalCode: data.postalCode || '',
-          country: data.country || '',
-          currency: data.currency || 'AED',
-          subtotal: Number(data.subtotal) || 0,
-          discount: Number(data.discount) || 0,
-          shipping: Number(data.shipping) || 0,
-          total: Number(data.total) || 0,
-          status: data.status || 'confirmed',
-          paymentMethod: data.paymentMethod || 'cash_on_delivery',
-          shippingMethod: data.shippingMethod || 'standard',
-          trackingCarrier: data.trackingCarrier || null,
-          trackingNumber: data.trackingNumber || null,
-          notes: data.notes || null,
-        });
-
-        if (data.items && data.items.length > 0) {
-          await tx.insert(orderItems).values(
-            data.items.map((item) => ({
-              orderId: data.id,
-              productId: item.productId,
-              name: item.name,
-              color: item.color,
-              size: item.size,
-              quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
-              price: Number(item.price) || 0,
-              image: item.image || null,
-            }))
-          );
-        }
-      });
-    } catch (error: any) {
-      console.warn('[PostgreSQL insert fallback] Stored order in memory only:', error?.message || error);
-      disablePostgres(error);
-    }
-  }
-
-  return newMemoryOrder;
+  const connection = database();
+  await connection.transaction(async (tx: any) => {
+    const { items, ...row } = data;
+    await tx.insert(orders).values(row);
+    await tx.insert(orderItems).values(items.map(item => ({ ...item, orderId: data.id })));
+  });
+  return data;
 }
-
-export async function updateOrderState(
-  orderId: string,
-  status: string,
-  trackingCarrier?: string,
-  trackingNumber?: string
-) {
-  const existing = memoryOrders.find((o) => o.id === orderId);
-  if (existing) {
-    existing.status = status;
-    if (trackingCarrier !== undefined) existing.trackingCarrier = trackingCarrier;
-    if (trackingNumber !== undefined) existing.trackingNumber = trackingNumber;
-  }
-
-  if (db) {
-    try {
-      const [updated] = await db
-        .update(orders)
-        .set({
-          status,
-          ...(trackingCarrier ? { trackingCarrier } : {}),
-          ...(trackingNumber ? { trackingNumber } : {}),
-        })
-        .where(eq(orders.id, orderId))
-        .returning();
-
-      if (updated) return updated;
-    } catch (error) {
-      console.warn('[PostgreSQL update fallback] Updated order in memory only:', error);
-    }
-  }
-
-  return existing || null;
+// Only a verified Stripe session may change a pending order to confirmed.
+export async function confirmPaidOrder(id: string, email: string, currency: string, amountMinor: number) {
+  const connection = database();
+  const [order] = await connection.select().from(orders).where(eq(orders.id, id));
+  if (!order || order.email !== email || order.currency.toLowerCase() !== currency.toLowerCase() || Math.round(order.total * 100) !== amountMinor) throw new Error('Payment does not match the stored order.');
+  await connection.update(orders).set({ status: 'confirmed' }).where(and(eq(orders.id, id), eq(orders.status, 'pending')));
+  return (await getAllOrders(email)).find(order => order.id === id);
 }
-
-export async function deleteOrderById(orderId: string) {
-  const index = memoryOrders.findIndex((o) => o.id === orderId);
-  if (index !== -1) {
-    memoryOrders.splice(index, 1);
-  }
-
-  if (db) {
-    try {
-      await db.transaction(async (tx: any) => {
-        await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
-        await tx.delete(orders).where(eq(orders.id, orderId));
-      });
-    } catch (error) {
-      console.warn('[PostgreSQL delete fallback] Deleted order in memory only:', error);
-    }
-  }
-
+export async function updateOrderState(id: string, status: string, trackingCarrier?: string, trackingNumber?: string) {
+  const connection = database();
+  const [updated] = await connection.update(orders).set({ status, ...(trackingCarrier !== undefined ? { trackingCarrier } : {}), ...(trackingNumber !== undefined ? { trackingNumber } : {}) }).where(and(eq(orders.id, id), inArray(orders.status, ['confirmed', 'processing', 'shipped', 'delivered', 'cancelled']))).returning();
+  return updated || null;
+}
+export async function deleteOrderById(id: string) {
+  const connection = database();
+  await connection.transaction(async (tx: any) => {
+    const [row] = await tx.select().from(orders).where(eq(orders.id, id)).for('update');
+    if (row?.status === 'pending') throw new Error('Pending payments cannot be deleted.');
+    await tx.delete(orderItems).where(eq(orderItems.orderId, id));
+    await tx.delete(orders).where(eq(orders.id, id));
+  });
   return { success: true };
 }
 
 export async function getLiveDashboardStats() {
-  const allOrders = await getAllOrders();
+  const allOrders = (await getAllOrders()).filter(order => !['pending', 'cancelled'].includes(order.status));
 
   const totalOrders = allOrders.length;
   // Calculate total revenue standardized to AED
@@ -328,3 +132,4 @@ export async function getLiveDashboardStats() {
     latestOrders: allOrders.slice(0, 5),
   };
 }
+

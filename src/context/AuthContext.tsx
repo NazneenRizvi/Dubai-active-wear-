@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '../lib/firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
+import { auth, googleAuthProvider } from '../lib/firebase';
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut, signInWithPopup, sendEmailVerification } from 'firebase/auth';
 import { User } from '../types';
 import { STORE_OWNER_EMAIL, STORE_OWNER_CONFIG } from '../config';
 
@@ -10,6 +10,7 @@ interface AuthContextType {
   isOwner: boolean;
   login: (email: string, password: string, name?: string) => Promise<{ success: boolean; message?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
@@ -62,9 +63,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
       await updateProfile(result.user, { displayName: name });
+      if (!result.user.emailVerified) await sendEmailVerification(result.user);
       setUser({ id: result.user.uid, email: result.user.email || '', name });
       return { success: true };
     } catch (error) { console.error('Registration failed:', error); return { success: false, message: 'Registration failed. Check your details and Firebase configuration.' }; }
+  };
+  const loginWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleAuthProvider);
+      return { success: true };
+    } catch (error: any) {
+      const message = error?.code === 'auth/popup-closed-by-user' ? 'Sign-in was cancelled. Please try again.' : error?.code === 'auth/popup-blocked' ? 'Allow popups for this website, then try again.' : error?.code === 'auth/account-exists-with-different-credential' ? 'Sign in using your existing email and password.' : 'Google sign-in is unavailable. Please try again or use your email.';
+      return { success: false, message };
+    }
   };
   const logout = () => { void signOut(auth).catch(error => console.error('Sign out failed:', error)); };
 
@@ -77,6 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
+        loginWithGoogle,
         openAuthModal,
         closeAuthModal,
         isAuthModalOpen,
@@ -95,3 +107,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

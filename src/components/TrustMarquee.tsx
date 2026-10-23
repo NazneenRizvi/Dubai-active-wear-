@@ -14,8 +14,8 @@ const TRUST_BADGES = [
   },
   {
     icon: CheckCircle2,
-    title: 'CARDS, APPLE PAY & COD',
-    desc: 'Pay securely with UAE card, Apple Pay, or cash on delivery'
+    title: 'CARDS & APPLE PAY',
+    desc: 'Pay securely online with your card or an available wallet'
   },
   {
     icon: RotateCcw,
@@ -48,8 +48,8 @@ const TESTIMONIALS = [
     name: 'Dr. Fatima Tariq',
     city: 'Lahore (DHA)',
     rating: 5,
-    title: 'Super fast COD delivery',
-    text: 'Received my parcel in 2 days via Trax COD. The packaging was luxury grade and the low-impact sports bra is so flattering and supportive. Will definitely order the pink set next!',
+    title: 'Super fast delivery',
+    text: 'Received my parcel in 2 days with tracked delivery. The packaging was luxury grade and the low-impact sports bra is so flattering and supportive. Will definitely order the pink set next!',
     product: 'Cloud Ribbed Sports Bra',
     date: '4 days ago'
   },
@@ -160,3 +160,4 @@ export const TrustMarquee: React.FC = () => {
     </section>
   );
 };
+

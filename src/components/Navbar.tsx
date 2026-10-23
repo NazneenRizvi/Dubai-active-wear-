@@ -74,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden md:inline text-neutral-400"> · Express Delivery across Dubai & All Emirates 🇦🇪</span>
         </div>
         <div className="hidden sm:block text-[10px] tracking-wider text-neutral-400">
-          CARDS & APPLE PAY / COD
+          CARDS & APPLE PAY
         </div>
       </div>
 
@@ -246,6 +246,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Mobile User Icon Dropdown - hidden on screens under 370px, handled by bottom nav */}
           <UserDropdown variant="icon" className="hidden min-[370px]:flex md:hidden" />
 
+          {isAuthenticated && <>
           {/* Cart Bag Icon with dynamic counter badge - never cut off on mobile */}
           <button
             onClick={() => setIsCartOpen(true)}
@@ -259,6 +260,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             )}
           </button>
+          </>}
         </div>
       </div>
 
@@ -449,3 +451,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { CartItem, Product, ProductColor, ProductSize, Order } from '../types';
 import { normalizeOrders } from '../lib/orders';
 import { apiRequest } from '../lib/api';
@@ -8,7 +8,7 @@ import { STORE_OWNER_CONFIG, STORE_OWNER_EMAIL } from '../config';
 
 interface CartContextType {
   items: CartItem[];
-  addToCart: (product: Product, color: ProductColor, size: ProductSize, quantity?: number) => void;
+  addToCart: (product: Product, color: ProductColor, size: ProductSize, quantity?: number) => boolean;
   removeFromCart: (itemId: string) => void;
   updateQuantity: (itemId: string, newQuantity: number) => void;
   clearCart: () => void;
@@ -38,7 +38,8 @@ interface CartContextType {
   setIsWishlistOpen: (open: boolean) => void;
   isAdminViewOpen: boolean;
   setIsAdminViewOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  
+
+  buyNow: (product: Product, color: ProductColor, size: ProductSize, quantity?: number) => boolean;
   // Wishlist
   wishlist: Product[];
   toggleWishlist: (product: Product) => void;
@@ -49,13 +50,12 @@ interface CartContextType {
   addProduct: (product: Product) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (productId: string) => void;
-  
+
   // Store Owner & Order Management (For Nazneen)
   orders: Order[];
   ordersError: string;
   ordersLoading: boolean;
   refreshOrders: () => Promise<void>;
-  addOrder: (order: Order) => Promise<void>;
   updateOrderStatus: (orderId: string, status: Order['status'], trackingCarrier?: string, trackingNumber?: string) => void;
   deleteOrder: (orderId: string) => void;
   clearAllOrders: () => void;
@@ -74,20 +74,12 @@ const FREE_SHIPPING_THRESHOLD_USD = 40.87;
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [items, setItems] = useState<CartItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('fj_cart');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
-        } catch {
-          return [];
-        }
-      }
-    }
-    return [];
-  });
+  const { user, openAuthModal } = useAuth();
+  const [cartOwner, setCartOwner] = useState<string | null>(null);
+  const [storedItems, setItems] = useState<CartItem[]>([]);
+  const items = user && cartOwner === user.id ? storedItems : [];
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
 
   // Dynamic Catalog with LocalStorage persistence
   const [products, setProducts] = useState<Product[]>(() => {
@@ -149,79 +141,50 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const { user } = useAuth();
-  
-  // Local storage loader for orders
-  const loadStoredOrders = (): Order[] => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = localStorage.getItem('fj_orders');
-      return saved ? normalizeOrders(JSON.parse(saved)) : [];
-    } catch {
-      return [];
-    }
-  };
 
-  const [orders, setOrders] = useState<Order[]>(() => loadStoredOrders());
+
+  const [orders, setOrders] = useState<Order[]>([]);
   const [ordersError, setOrdersError] = useState('');
   const [ordersLoading, setOrdersLoading] = useState(false);
 
-  // Sync orders to localStorage whenever orders change
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('fj_orders', JSON.stringify(orders));
-      } catch {
-        // ignore storage errors
-      }
-    }
-  }, [orders]);
-
   const refreshOrders = async () => {
+    const id = user?.id;
+    if (!id) { setOrders([]); return; }
     setOrdersLoading(true);
     try {
       const data = await apiRequest('/api/orders');
-      if (Array.isArray(data)) {
-        setOrders(normalizeOrders(data));
-        setOrdersError('');
-      } else {
-        setOrders(loadStoredOrders());
-      }
-    } catch {
-      // Backend unavailable; use local orders seamlessly
-      setOrders(loadStoredOrders());
-      setOrdersError('');
-    } finally {
-      setOrdersLoading(false);
-    }
+      if (userIdRef.current === id) { setOrders(normalizeOrders(data)); setOrdersError(''); }
+    } catch (error) {
+      if (userIdRef.current === id) { setOrders([]); setOrdersError(error instanceof Error ? error.message : 'Could not load orders.'); }
+    } finally { if (userIdRef.current === id) setOrdersLoading(false); }
   };
 
   useEffect(() => {
-    let active = true;
-    const fetchInit = async () => {
-      try {
-        const data = await apiRequest('/api/orders');
-        if (active && Array.isArray(data)) {
-          setOrders(normalizeOrders(data));
-        }
-      } catch {
-        if (active) {
-          setOrders(loadStoredOrders());
-        }
-      }
-    };
-    void fetchInit();
-    return () => {
-      active = false;
-    };
+    localStorage.removeItem('fj_cart');
+    localStorage.removeItem('fj_orders');
+    setItems([]); setOrders([]); setOrdersError(''); setOrdersLoading(false);
+    setPromoCode(''); setPromoDiscountPercent(0);
+    setIsCartOpen(false); setIsCheckoutOpen(!!user && ['success', 'cancelled'].includes(new URLSearchParams(window.location.search).get('payment') || ''));
+    setIsCustomerOrdersOpen(false); setIsOwnerOrdersOpen(false); setIsAdminViewOpen(false);
+    setCartOwner(user?.id || null);
+    if (!user) return;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(`fj_cart_${user.id}`) || '[]');
+      setItems(Array.isArray(saved) ? saved.filter(item => item?.product?.id && item?.selectedColor?.name && Number.isInteger(item.quantity) && item.quantity > 0) : []);
+    } catch { setItems([]); }
+    void refreshOrders();
   }, [user?.id]);
 
-  // Save cart to localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('fj_cart', JSON.stringify(items));
-    }
-  }, [items]);
+    if (user && cartOwner === user.id) sessionStorage.setItem(`fj_cart_${user.id}`, JSON.stringify(storedItems));
+  }, [storedItems, cartOwner, user?.id]);
+
+  // Remove the previous account's persisted cart when the identity changes.
+  const previousUser = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (previousUser.current && previousUser.current !== user?.id) sessionStorage.removeItem(`fj_cart_${previousUser.current}`);
+    previousUser.current = user?.id;
+  }, [user?.id]);
 
   // Save wishlist to localStorage
   useEffect(() => {
@@ -263,45 +226,17 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProducts((prev) => prev.filter((p) => p.id !== productId));
   };
 
-  const addOrder = async (order: Order) => {
-    // 1. Instantly save to state and localStorage (ensures zero 404 block for dummy cards)
-    const normalized = normalizeOrders([order])[0] || order;
-    setOrders((prev) => [normalized, ...prev.filter((o) => o.id !== normalized.id)]);
-
-    // 2. Try sending to backend if available (without crashing if backend is offline)
-    try {
-      await apiRequest('/api/orders', { method: 'POST', body: JSON.stringify(normalized) });
-    } catch {
-      // Backend offline on Vercel: safely persisted in browser storage
-    }
-  };
-
   const updateOrderStatus = async (orderId: string, status: Order['status'], trackingCarrier?: string, trackingNumber?: string) => {
-    setOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? { ...o, status, ...(trackingCarrier ? { trackingCarrier } : {}), ...(trackingNumber ? { trackingNumber } : {}) }
-          : o
-      )
-    );
-
     try {
-      await apiRequest(`/api/orders/${encodeURIComponent(orderId)}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, trackingCarrier, trackingNumber }),
-      });
-    } catch {
-      // safely fallback to local update
-    }
+      await apiRequest(`/api/orders/${encodeURIComponent(orderId)}/status`, { method: 'PATCH', body: JSON.stringify({ status, trackingCarrier, trackingNumber }) });
+      await refreshOrders();
+    } catch (error) { setOrdersError(error instanceof Error ? error.message : 'Update failed.'); }
   };
-
   const deleteOrder = async (orderId: string) => {
-    setOrders((prev) => prev.filter((order) => order.id !== orderId));
     try {
       await apiRequest(`/api/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
-    } catch {
-      // safely fallback
-    }
+      await refreshOrders();
+    } catch (error) { setOrdersError(error instanceof Error ? error.message : 'Delete failed.'); }
   };
 
   const clearAllOrders = () => {
@@ -309,6 +244,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addToCart = (product: Product, color: ProductColor, size: ProductSize, quantity = 1) => {
+    if (!user) { openAuthModal('login'); return false; }
+    if (!product.inStock || !Number.isInteger(quantity) || quantity < 1 || quantity > 99) return false;
+    setCartOwner(user.id);
     const itemId = `${product.id}-${color.name.toLowerCase().replace(/\s+/g, '-')}-${size}`;
 
     setItems((prevItems) => {
@@ -331,6 +269,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     setIsCartOpen(true);
+    return true;
+  };
+
+  const buyNow = (product: Product, color: ProductColor, size: ProductSize, quantity = 1) => {
+    if (!addToCart(product, color, size, quantity)) return false;
+    setIsCartOpen(false);
+    setQuickViewProduct(null); setSelectedProductForDetail(null);
+    setIsCheckoutOpen(true);
+    return true;
   };
 
   const removeFromCart = (itemId: string) => {
@@ -396,6 +343,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         items,
         addToCart,
+        buyNow,
         removeFromCart,
         updateQuantity,
         clearCart,
@@ -411,13 +359,13 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         amountNeededForFreeShippingUsd,
         shippingUsd,
         totalUsd,
-        isCartOpen,
+        isCartOpen: !!user && isCartOpen,
         setIsCartOpen,
         selectedProductForDetail,
         setSelectedProductForDetail,
         quickViewProduct,
         setQuickViewProduct,
-        isCheckoutOpen,
+        isCheckoutOpen: !!user && isCheckoutOpen,
         setIsCheckoutOpen,
         isSearchOpen,
         setIsSearchOpen,
@@ -432,11 +380,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addProduct,
         updateProduct,
         deleteProduct,
-        orders,
+        orders: user && cartOwner === user.id ? orders : [],
         ordersError,
         ordersLoading,
         refreshOrders,
-        addOrder,
         updateOrderStatus,
         deleteOrder,
         clearAllOrders,
@@ -461,3 +408,4 @@ export const useCart = () => {
   }
   return context;
 };
+

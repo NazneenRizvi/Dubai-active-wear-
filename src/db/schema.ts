@@ -27,7 +27,7 @@ export const orders = pgTable('orders', {
   shipping: doublePrecision('shipping').default(0).notNull(),
   total: doublePrecision('total').notNull(),
   status: text('status').default('pending').notNull(), // 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled'
-  paymentMethod: text('payment_method').default('cash_on_delivery').notNull(),
+  paymentMethod: text('payment_method').default('credit_card').notNull(),
   shippingMethod: text('shipping_method').default('standard').notNull(),
   trackingCarrier: text('tracking_carrier'),
   trackingNumber: text('tracking_number'),
@@ -61,3 +61,4 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
     references: [orders.id],
   }),
 }));
+

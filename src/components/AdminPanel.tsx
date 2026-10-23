@@ -1455,20 +1455,22 @@ export const AdminPanel: React.FC = () => {
                         <td className="p-3">
                           <p className="font-black text-neutral-900">{formatPrice(order.total)}</p>
                           <p className="text-[10px] font-bold text-neutral-400 uppercase">
-                            {order.paymentMethod === 'cash_on_delivery' ? 'COD' : 'Paid'}
+                            {order.status === 'pending' ? 'Payment pending' : ['credit_card', 'apple_pay'].includes(order.paymentMethod) ? 'Online payment' : 'Legacy order'}
                           </p>
                         </td>
 
                         <td className="p-3">
                           <select
                             value={order.status}
+                            disabled={order.status === 'pending'}
                             onChange={(e) => {
                               updateOrderStatus(order.id, e.target.value as any);
 
                             }}
                             className="p-1 text-xs border border-neutral-300 font-bold uppercase rounded-xs bg-white cursor-pointer"
                           >
-                            <option value="confirmed">Confirmed</option>
+                            <option value="pending" disabled>Payment pending</option>
+                            <option value="confirmed" disabled>Confirmed</option>
                             <option value="processing">Processing</option>
                             <option value="shipped">Out for Delivery</option>
                             <option value="delivered">Delivered</option>
@@ -1480,7 +1482,7 @@ export const AdminPanel: React.FC = () => {
                             href={`https://wa.me/${order.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
                               `*Assalam-o-Alaikum ${order.customerName}!* 👋\n\n` +
                               `Your activewear order *${order.id}* from *ICON Activewear Karachi* is being processed!\n\n` +
-                              `• *Total Amount:* ${formatPrice(order.total)} (Cash on Delivery)\n` +
+                              `• *Total Amount:* ${formatPrice(order.total)}\n` +
                               `• *Shipping Address:* ${order.address}, ${order.city}\n\n` +
                               `Please confirm if you are available to receive the parcel at this address. Shukriya!`
                             )}`}
@@ -1496,7 +1498,7 @@ export const AdminPanel: React.FC = () => {
                             onClick={() => {
                               if (confirm(`Delete Order ${order.id}?`)) {
                                 deleteOrder(order.id);
-                                
+
                               }
                             }}
                             className="p-1.5 text-neutral-400 hover:text-red-600 transition-colors cursor-pointer inline-block"
@@ -1552,7 +1554,7 @@ export const AdminPanel: React.FC = () => {
                       FREESHIP
                     </span>
                     <span className="text-[10px] bg-blue-500 text-white font-black px-1.5 py-0.2 rounded-full uppercase">
-                      FREE COD
+                      FREE SHIPPING
                     </span>
                   </div>
                   <p className="text-xs text-neutral-600">Free delivery unlock across Pakistan.</p>
@@ -1904,3 +1906,4 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 };
+

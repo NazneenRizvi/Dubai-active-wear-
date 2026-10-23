@@ -52,8 +52,8 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
             <p className="text-[11px] text-neutral-400">High-density 280 GSM seamless activewear</p>
           </div>
           <div className="space-y-1">
-            <h4 className="text-xs font-black uppercase tracking-wider text-white">Cards, Apple Pay & COD</h4>
-            <p className="text-[11px] text-neutral-400">Secure online bank payments or cash on delivery</p>
+            <h4 className="text-xs font-black uppercase tracking-wider text-white">Cards & Apple Pay</h4>
+            <p className="text-[11px] text-neutral-400">Secure online payments</p>
           </div>
           <div className="space-y-1">
             <h4 className="text-xs font-black uppercase tracking-wider text-white">Dubai HQ & WhatsApp Support</h4>
@@ -237,7 +237,7 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
               <div className="flex flex-wrap gap-1.5 text-[10px] font-bold text-neutral-300 uppercase">
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Visa</span>
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Mastercard</span>
-                <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">COD (PK)</span>
+
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Apple Pay</span>
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">PayPal</span>
               </div>
@@ -258,3 +258,4 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
     </footer>
   );
 };
+

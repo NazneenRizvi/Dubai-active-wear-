@@ -37,10 +37,6 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
           await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
           continue;
         }
-        // If it's a GET /api/orders request and the backend returned HTML (e.g. during server boot)
-        if (path.startsWith('/api/orders') && isGet) {
-          return [];
-        }
         throw new Error(`API returned non-JSON response (${response.status}). The server may still be initializing.`);
       }
 
@@ -58,12 +54,8 @@ export async function apiRequest(path: string, options: RequestInit = {}) {
     }
   }
 
-  // Graceful fallback for orders list if server is temporarily unreachable
-  if (path.startsWith('/api/orders') && isGet) {
-    return [];
-  }
-
   console.error(`[API ${options.method || 'GET'} ${path}]`, lastError);
   throw lastError;
 }
+
 

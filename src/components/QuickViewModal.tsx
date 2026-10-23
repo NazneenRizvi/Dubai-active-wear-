@@ -5,7 +5,7 @@ import { useCurrency } from '../context/CurrencyContext';
 import { ProductColor, ProductSize } from '../types';
 
 export const QuickViewModal: React.FC = () => {
-  const { quickViewProduct, setQuickViewProduct, addToCart, toggleWishlist, isInWishlist } = useCart();
+  const { quickViewProduct, setQuickViewProduct, addToCart, buyNow, toggleWishlist, isInWishlist } = useCart();
   const { formatPrice } = useCurrency();
 
   const product = quickViewProduct;
@@ -52,13 +52,16 @@ export const QuickViewModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [product, setQuickViewProduct]);
 
+  useEffect(() => {
+    if (product) { setSelectedColor(product.colors[0]); setSelectedSize(product.sizes[0]); setJustAdded(false); }
+  }, [product?.id]);
   if (!product) return null;
 
   const activeColor = selectedColor || product.colors[0];
   const isWishlisted = isInWishlist(product.id);
 
   const handleAddToCart = () => {
-    addToCart(product, activeColor, selectedSize, 1);
+    if (!addToCart(product, activeColor, selectedSize, 1)) return;
     setJustAdded(true);
     setTimeout(() => {
       setJustAdded(false);
@@ -191,7 +194,7 @@ export const QuickViewModal: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleAddToCart}
-                disabled={justAdded}
+                disabled={justAdded || !product.inStock}
                 className="flex-1 py-3 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs font-black tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
               >
                 {justAdded ? (
@@ -202,7 +205,7 @@ export const QuickViewModal: React.FC = () => {
                 ) : (
                   <>
                     <ShoppingBag className="w-4 h-4" />
-                    <span>ADD TO BAG ({selectedSize})</span>
+                    <span>ADD TO CART ({selectedSize})</span>
                   </>
                 )}
               </button>
@@ -220,9 +223,10 @@ export const QuickViewModal: React.FC = () => {
               </button>
             </div>
 
+            <button disabled={!product.inStock} onClick={() => buyNow(product, activeColor, selectedSize)} className="w-full border border-black py-3 text-xs font-bold disabled:opacity-40">BUY IT NOW</button>
             <p className="text-[10px] text-center text-neutral-500 flex items-center justify-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>100% Cash on Delivery & Free Exchange in Pakistan</span>
+              <span>Secure online payment & easy exchanges</span>
             </p>
           </div>
         </div>
@@ -230,3 +234,4 @@ export const QuickViewModal: React.FC = () => {
     </div>
   );
 };
+

@@ -1,4 +1,4 @@
-import { Product } from '../types';
+import type { Product } from '../types';
 
 export const PRODUCTS: Product[] = [
   {
@@ -339,7 +339,7 @@ export const TESTIMONIALS = [
     author: 'Zainab M.',
     role: 'CrossFit Athlete & Powerlifter',
     location: 'Lahore, PK',
-    content: 'Shipping was super fast, ordered in PKR with Cash on Delivery and arrived in 2 days. The Elite seamless compression is on par with $120 high-end brands at a fraction of the cost.',
+    content: 'Shipping was super fast, ordered in PKR with online payment and arrived in 2 days. The Elite seamless compression is on par with $120 high-end brands at a fraction of the cost.',
     rating: 5,
     productPurchased: 'Elite Seamless Leggings'
   },
@@ -353,3 +353,4 @@ export const TESTIMONIALS = [
     productPurchased: 'Bold Sports Bra'
   }
 ];
+

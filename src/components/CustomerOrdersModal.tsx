@@ -20,7 +20,7 @@ import { useCurrency } from '../context/CurrencyContext';
 import { Order } from '../types';
 
 export const CustomerOrdersModal: React.FC = () => {
-  const { isCustomerOrdersOpen, setIsCustomerOrdersOpen, orders } = useCart();
+  const { isCustomerOrdersOpen, setIsCustomerOrdersOpen, orders, ordersError, ordersLoading, refreshOrders } = useCart();
   const { user } = useAuth();
   const { formatPrice } = useCurrency();
 
@@ -60,7 +60,8 @@ export const CustomerOrdersModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isCustomerOrdersOpen, setIsCustomerOrdersOpen]);
 
-  if (!isCustomerOrdersOpen) return null;
+  useEffect(() => { if (isCustomerOrdersOpen && user) void refreshOrders(); }, [isCustomerOrdersOpen, user?.id]);
+  if (!isCustomerOrdersOpen || !user) return null;
 
   // Filter orders:
   // 1. If customer typed a search query (Order ID, Email, Phone, Name), filter from all orders
@@ -184,6 +185,8 @@ export const CustomerOrdersModal: React.FC = () => {
 
         {/* Content */}
         <div className="p-4 sm:p-6 flex-1 overflow-y-auto space-y-4">
+          {ordersError && <p role="alert" className="bg-red-50 text-red-700 p-3 text-sm">{ordersError} <button onClick={() => void refreshOrders()} className="underline">Retry</button></p>}
+          {ordersLoading && <p role="status">Loading your orders…</p>}
           {displayedOrders.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <div className="w-12 h-12 bg-neutral-100 text-neutral-400 rounded-full flex items-center justify-center mx-auto">
@@ -378,7 +381,7 @@ export const CustomerOrdersModal: React.FC = () => {
                       {formatPrice(order.total)}
                     </strong>
                     <span className="text-[10px] text-neutral-500 block">
-                      {order.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Card Payment'}
+                      {['credit_card', 'apple_pay'].includes(order.paymentMethod) ? 'Online payment' : 'Legacy order'}
                     </span>
                   </div>
                 </div>
@@ -390,3 +393,4 @@ export const CustomerOrdersModal: React.FC = () => {
     </div>
   );
 };
+

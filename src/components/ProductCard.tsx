@@ -10,10 +10,10 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { formatPrice } = useCurrency();
-  const { addToCart, setSelectedProductForDetail, setQuickViewProduct, toggleWishlist, isInWishlist } = useCart();
+  const { addToCart, buyNow, setSelectedProductForDetail, setQuickViewProduct, toggleWishlist, isInWishlist } = useCart();
 
   const [selectedColor, setSelectedColor] = useState<ProductColor>(product.colors[0]);
-  const [selectedSize, setSelectedSize] = useState<ProductSize>(product.sizes[1] || 'S');
+  const [selectedSize, setSelectedSize] = useState<ProductSize>(product.sizes[0]);
   const [isHovered, setIsHovered] = useState(false);
   const [isQuickAdding, setIsQuickAdding] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -22,8 +22,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!addToCart(product, selectedColor, selectedSize, 1)) return;
     setIsQuickAdding(true);
-    addToCart(product, selectedColor, selectedSize, 1);
     setJustAdded(true);
     setTimeout(() => {
       setJustAdded(false);
@@ -102,7 +102,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             ) : (
               <>
                 <ShoppingBag className="w-3.5 h-3.5" />
-                <span>QUICK ADD ({selectedSize})</span>
+                <span>ADD TO CART ({selectedSize})</span>
               </>
             )}
           </button>
@@ -158,6 +158,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </div>
         </div>
 
+        <div className="w-full mt-3 grid gap-2" onClick={e => e.stopPropagation()}>
+          <label className="text-xs">Size <select aria-label={`Size for ${product.name}`} value={selectedSize} onChange={e => setSelectedSize(e.target.value as ProductSize)} className="border p-1 ml-2">{product.sizes.map(size => <option key={size}>{size}</option>)}</select></label>
+          <button disabled={!product.inStock || isQuickAdding} onClick={handleQuickAdd} className="border border-black py-2 text-xs font-bold disabled:opacity-40">{justAdded ? 'ADDED!' : 'ADD TO CART'}</button>
+          <button disabled={!product.inStock} onClick={() => buyNow(product, selectedColor, selectedSize)} className="bg-black text-white py-2 text-xs font-bold disabled:opacity-40">BUY IT NOW</button>
+        </div>
         {/* Rating and Reviews */}
         <div className="mt-2 flex items-center gap-1 text-[11px] text-neutral-500">
           <div className="flex items-center text-amber-500">
@@ -170,3 +175,4 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     </div>
   );
 };
+

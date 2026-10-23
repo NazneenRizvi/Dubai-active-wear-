@@ -30,7 +30,7 @@ export const requireAuth = async (
   try {
     // Cryptographically verify token directly with Google Firebase Identity API
     const verifyRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY || firebaseConfig.apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,3 +63,4 @@ export const requireAuth = async (
     return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
   }
 };
+

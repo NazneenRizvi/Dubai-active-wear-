@@ -1,0 +1,8 @@
+OWNER DISCOUNTS - staging code
+Default discount OFF (no Firestore setting needed).
+Verified owner: Admin -> Coupons & Discounts -> enter code, percent 1-40, enable, save.
+Customer verification uses /api/discounts/verify; server recomputes discounts.
+Previous FLASH40/WELCOME10/VIP15 coupons are not automatically active.
+NOTE: live payment gateway is pending; disabled card payment checkout is unchanged.
+RUN on your PC: npm ci; npx tsc --noEmit; npm test; npm run build. Do not deploy if any step fails.
+SECURITY: This is NOT a full security audit; backend order creation and gateway need separate verification.

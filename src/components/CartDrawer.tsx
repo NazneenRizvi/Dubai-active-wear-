@@ -21,7 +21,7 @@ export const CartDrawer: React.FC = () => {
     promoDiscountPercent,
     applyPromoCode,
     removePromoCode,
-    setIsCheckoutOpen
+    setIsCheckoutOpen, setSelectedProductForDetail
   } = useCart();
 
   const { formatPrice } = useCurrency();
@@ -65,10 +65,10 @@ export const CartDrawer: React.FC = () => {
 
   if (!isCartOpen) return null;
 
-  const handleApplyPromo = (e: React.FormEvent) => {
+  const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!promoInput.trim()) return;
-    const res = applyPromoCode(promoInput);
+    const res = await applyPromoCode(promoInput);
     setPromoMessage({ text: res.message, isError: !res.success });
     if (res.success) {
       setPromoInput('');
@@ -159,8 +159,9 @@ export const CartDrawer: React.FC = () => {
                     <img
                       src={item.product.image}
                       alt={item.product.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover cursor-pointer"
                       referrerPolicy="no-referrer"
+                      onClick={() => { setSelectedProductForDetail(item.product); setIsCartOpen(false); }}
                     />
                   </div>
 
@@ -168,7 +169,7 @@ export const CartDrawer: React.FC = () => {
                   <div className="flex-1 flex flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between">
-                        <h4 className="text-xs font-extrabold uppercase text-neutral-900 tracking-wider">
+                        <h4 className="text-xs font-extrabold uppercase text-neutral-900 tracking-wider cursor-pointer" onClick={() => { setSelectedProductForDetail(item.product); setIsCartOpen(false); }}>
                           {item.product.name}
                         </h4>
                         <button

@@ -52,8 +52,8 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
             <p className="text-[11px] text-neutral-400">High-density 280 GSM seamless activewear</p>
           </div>
           <div className="space-y-1">
-            <h4 className="text-xs font-black uppercase tracking-wider text-white">Cards, Apple Pay & COD</h4>
-            <p className="text-[11px] text-neutral-400">Secure online bank payments or cash on delivery</p>
+            <h4 className="text-xs font-black uppercase tracking-wider text-white">Online Card Payments</h4>
+            <p className="text-[11px] text-neutral-400">Online checkout (subject to gateway activation)</p>
           </div>
           <div className="space-y-1">
             <h4 className="text-xs font-black uppercase tracking-wider text-white">Dubai HQ & WhatsApp Support</h4>
@@ -87,7 +87,7 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
           {/* Brand & Newsletter Column */}
           <div className="md:col-span-5 space-y-4">
             <h3 className="text-xl font-black font-display tracking-widest uppercase">
-              ICON ACTIVEWEAR
+              DUBAI ACTIVEWEAR
             </h3>
             <p className="text-xs text-neutral-400 max-w-sm leading-relaxed">
               Premium high-performance athletic apparel engineered for endurance and everyday fitness. Dispatched directly from Karachi, Pakistan.
@@ -237,7 +237,7 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
               <div className="flex flex-wrap gap-1.5 text-[10px] font-bold text-neutral-300 uppercase">
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Visa</span>
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Mastercard</span>
-                <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">COD (PK)</span>
+                <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">ONLINE PAYMENT</span>
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">Apple Pay</span>
                 <span className="px-2 py-1 bg-neutral-900 border border-neutral-800">PayPal</span>
               </div>
@@ -247,7 +247,7 @@ export const Footer: React.FC<FooterProps> = ({ onCategoryClick, onOpenBrandStor
 
         {/* 3. Bottom Legal & Copyright Bar */}
         <div className="mt-12 pt-6 border-t border-neutral-800 flex flex-col sm:flex-row items-center justify-between text-[11px] text-neutral-500 gap-4">
-          <p>© {new Date().getFullYear()} ICON ACTIVEWEAR Karachi. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} DUBAI ACTIVEWEAR Karachi. All rights reserved.</p>
           <div className="flex items-center gap-6">
             <span className="hover:text-neutral-400 cursor-pointer">Privacy Policy</span>
             <span className="hover:text-neutral-400 cursor-pointer">Terms of Service</span>

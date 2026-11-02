@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { CartItem, Product, ProductColor, ProductSize, Order } from '../types';
 import { normalizeOrders } from '../lib/orders';
 import { apiRequest } from '../lib/api';
@@ -16,7 +16,7 @@ interface CartContextType {
   subtotalUsd: number;
   promoCode: string;
   promoDiscountPercent: number;
-  applyPromoCode: (code: string) => { success: boolean; message: string };
+  applyPromoCode: (code: string) => Promise<{ success: boolean; message: string }>;
   removePromoCode: () => void;
   discountUsd: number;
   isFreeShipping: boolean;
@@ -150,6 +150,37 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const { user } = useAuth();
+
+  // Keep browser shopping data isolated across sign-out and account switching.
+  // This changes only browser state; Firestore order history is never deleted.
+  const previousUserIdRef = useRef<string | null>(user?.id ?? null);
+  useEffect(() => {
+    const nextUserId = user?.id ?? null;
+    // If user identity hasn't changed, do nothing.
+    if (previousUserIdRef.current === nextUserId) return;
+    previousUserIdRef.current = nextUserId;
+
+    // Clear customer shopping data on logout or account switch.
+    setItems([]);
+    setWishlist([]);
+    setOrders([]);
+    setPromoCode('');
+    setPromoDiscountPercent(0);
+    setIsCartOpen(false);
+    setIsCheckoutOpen(false);
+    setIsCustomerOrdersOpen(false);
+    setIsOwnerOrdersOpen(false);
+    setIsAdminViewOpen(false);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('fj_cart');
+        localStorage.removeItem('fj_wishlist');
+        localStorage.removeItem('fj_orders');
+      } catch {
+        // State still clears when storage is unavailable.
+      }
+    }
+  }, [user?.id]);
   
   // Local storage loader for orders
   const loadStoredOrders = (): Order[] => {
@@ -162,7 +193,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const [orders, setOrders] = useState<Order[]>(() => loadStoredOrders());
+  const [orders, setOrders] = useState<Order[]>([]);
   const [ordersError, setOrdersError] = useState('');
   const [ordersLoading, setOrdersLoading] = useState(false);
 
@@ -170,12 +201,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem('fj_orders', JSON.stringify(orders));
+        localStorage.removeItem('fj_orders');
       } catch {
         // ignore storage errors
       }
     }
-  }, [orders]);
+  }, []);
 
   const refreshOrders = async () => {
     setOrdersLoading(true);
@@ -185,12 +216,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setOrders(normalizeOrders(data));
         setOrdersError('');
       } else {
-        setOrders(loadStoredOrders());
+        setOrders([]);
       }
     } catch {
       // Backend unavailable; use local orders seamlessly
-      setOrders(loadStoredOrders());
-      setOrdersError('');
+      setOrders([]);
+      setOrdersError('Unable to load orders. Please retry.');
     } finally {
       setOrdersLoading(false);
     }
@@ -206,7 +237,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch {
         if (active) {
-          setOrders(loadStoredOrders());
+          setOrders([]);
         }
       }
     };
@@ -263,16 +294,30 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProducts((prev) => prev.filter((p) => p.id !== productId));
   };
 
-  const addOrder = async (order: Order) => {
-    // 1. Instantly save to state and localStorage (ensures zero 404 block for dummy cards)
+  const addOrder = async (order: Order): Promise<void> => {
     const normalized = normalizeOrders([order])[0] || order;
-    setOrders((prev) => [normalized, ...prev.filter((o) => o.id !== normalized.id)]);
 
-    // 2. Try sending to backend if available (without crashing if backend is offline)
+    // Send to backend and require successful database confirmation
     try {
-      await apiRequest('/api/orders', { method: 'POST', body: JSON.stringify(normalized) });
-    } catch {
-      // Backend offline on Vercel: safely persisted in browser storage
+      const response = await apiRequest('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(normalized),
+      });
+
+      if (response?.success !== true || !response?.order || response.order.id !== normalized.id) {
+        throw new Error('Backend did not confirm a persisted order.');
+      }
+      // Backend returned verified order saved to permanent database
+      const confirmedOrder = response?.order
+        ? normalizeOrders([response.order])[0] || normalized
+        : normalized;
+
+      // Only update local state and localStorage AFTER verified backend confirmation
+      setOrders((prev) => [confirmedOrder, ...prev.filter((o) => o.id !== confirmedOrder.id)]);
+    } catch (error: any) {
+      console.error('[CartContext] Order placement failed on database:', error);
+      // Re-throw so CheckoutModal catches it, halts order completion, and preserves shopping cart
+      throw new Error('Order could not be saved. Please try again.');
     }
   };
 
@@ -351,30 +396,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setItems([]);
   };
 
-  const applyPromoCode = (code: string) => {
+  // A coupon only applies after a server-side verification. All codes are OFF by default.
+  const applyPromoCode = async (code: string) => {
     const cleanCode = code.trim().toUpperCase();
-    if (cleanCode === 'WELCOME10') {
-      setPromoCode('WELCOME10');
-      setPromoDiscountPercent(10);
-      return { success: true, message: '10% Welcome discount applied!' };
-    } else if (cleanCode === 'ICON15' || cleanCode === 'VIP15') {
-      setPromoCode(cleanCode);
-      setPromoDiscountPercent(15);
-      return { success: true, message: '15% VIP discount applied!' };
-    } else if (cleanCode === 'FITNESS20' || cleanCode === 'MOVEMENT20') {
-      setPromoCode(cleanCode);
-      setPromoDiscountPercent(20);
-      return { success: true, message: '20% Athlete discount applied!' };
-    } else if (cleanCode === 'FLASH40') {
-      setPromoCode('FLASH40');
-      setPromoDiscountPercent(40);
-      return { success: true, message: '40% Flash Sale discount applied!' };
-    } else if (cleanCode === 'FREESHIP') {
-      setPromoCode('FREESHIP');
-      setPromoDiscountPercent(0);
-      return { success: true, message: 'Free Shipping unlocked!' };
-    } else {
-      return { success: false, message: 'Invalid promo code. Try ICON15, FLASH40, or WELCOME10' };
+    if (!cleanCode) return { success: false, message: 'Enter a coupon code.' };
+    try {
+      const result = await apiRequest(`/api/discounts/verify?code=${encodeURIComponent(cleanCode)}`);
+      if (result?.valid === true && Number.isInteger(result.percent) && result.percent >= 1 && result.percent <= 40) {
+        setPromoCode(cleanCode);
+        setPromoDiscountPercent(result.percent);
+        return { success: true, message: `${result.percent}% owner-approved discount applied.` };
+      }
+      setPromoCode(''); setPromoDiscountPercent(0);
+      return { success: false, message: 'This code is not active.' };
+    } catch {
+      setPromoCode(''); setPromoDiscountPercent(0);
+      return { success: false, message: 'Could not verify coupon. No discount applied.' };
     }
   };
 
@@ -461,3 +498,4 @@ export const useCart = () => {
   }
   return context;
 };
+

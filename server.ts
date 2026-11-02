@@ -2,10 +2,10 @@ import 'dotenv/config';
 import cors from 'cors';
 import { requireAuth, type AuthRequest } from './src/middleware/auth.ts';
 import { STORE_OWNER_EMAIL } from './src/config.ts';
-import { databaseConfigured } from './src/db/index.ts';
 import { PRODUCTS } from './src/data/products.ts';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
+import { getDiscountSettings, saveDiscountSettings } from './src/db/discounts.ts';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,9 +25,18 @@ const PORT = 3000;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '256kb' }));
-const isOwner = (req: AuthRequest) => req.user?.email?.toLowerCase().trim() === STORE_OWNER_EMAIL.toLowerCase().trim();
+const isOwner = (req: AuthRequest): boolean => {
+  if (!req.user || !req.user.email) return false;
+  // Multi-factor verification: email must be cryptographically marked verified by Google Identity
+  const isVerified = req.user.emailVerified === true;
+  const isOwnerEmail = req.user.email.toLowerCase().trim() === STORE_OWNER_EMAIL.toLowerCase().trim();
+  // Optional immutable Firebase UID validation if provided in environment
+  const ownerUid = process.env.STORE_OWNER_UID?.trim();
+  if (ownerUid && req.user.uid !== ownerUid) return false;
+  return isVerified && isOwnerEmail;
+};
 const requireOwner = (req: AuthRequest, res: express.Response, next: express.NextFunction) => {
-  if (!isOwner(req)) return res.status(401).json({ error: 'Store owner access required.' });
+  if (!isOwner(req)) return res.status(403).json({ error: 'Store owner access required. Please sign in with verified owner credentials.' });
   next();
 };
 const databaseError = (res: express.Response, error: any) => {
@@ -35,9 +44,7 @@ const databaseError = (res: express.Response, error: any) => {
   for (let depth = 0; depth < 5 && cause?.cause && !cause?.code; depth++) cause = cause.cause;
   const code = typeof cause?.code === 'string' ? cause.code : 'DATABASE_UNAVAILABLE';
   console.error('[Database query]', { code, message: cause?.message });
-  const message = code === '42P01' ? 'Database table is missing. Apply the project schema.' :
-    code === '42703' ? 'Database column is missing. Apply the project schema migration.' :
-    'Database temporarily unavailable. Using secure fallback.';
+  const message = 'Database temporarily unavailable. Please try again later.';
   return res.status(500).json({ error: message, code });
 };
 
@@ -46,19 +53,50 @@ app.get(['/healthz', '/livez', '/readyz', '/startup', '/liveness'], (req, res) =
   res.status(200).send('OK');
 });
 
-// API Routes
-app.get('/api/orders', async (req: AuthRequest, res) => {
+// All discounts default OFF. Only a verified store owner can activate a code.
+app.get('/api/discounts/verify', async (req, res) => {
   try {
-    const emailFilter = (req.query.email as string) || (isOwner(req) ? undefined : req.user?.email);
-    // Non-owners must have an email filter to view orders; prevent any accidental leak
-    if (!isOwner(req) && !emailFilter) {
-      return res.json([]);
+    const code = typeof req.query.code === 'string' ? req.query.code.trim().toUpperCase() : '';
+    const config = await getDiscountSettings();
+    if (!config.enabled || !code || code !== config.code) return res.json({ valid: false, percent: 0 });
+    return res.json({ valid: true, code: config.code, percent: config.percent });
+  } catch (e) { return databaseError(res, e); }
+});
+app.get('/api/admin/discount', requireAuth, requireOwner, async (_req, res) => {
+  try { return res.json(await getDiscountSettings()); } catch (e) { return databaseError(res, e); }
+});
+app.put('/api/admin/discount', requireAuth, requireOwner, async (req, res) => {
+  try {
+    const { code, percent, enabled } = req.body || {};
+    if (typeof code !== 'string' || !/^[A-Z0-9_-]{4,24}$/.test(code.trim().toUpperCase()) ||
+        !Number.isInteger(percent) || percent < 1 || percent > 40 || typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'Enter a 4–24 character coupon, percentage 1–40, and enabled state.' });
     }
-    const ordersList = await getAllOrders(emailFilter);
-    res.json(Array.isArray(ordersList) ? ordersList : []);
+    return res.json(await saveDiscountSettings({code: code.trim().toUpperCase(), percent, enabled}));
+  } catch (e) { return databaseError(res, e); }
+});
+
+// API Routes: Strictly enforce customer privacy and RBAC
+app.get('/api/orders', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    // 1. Authenticated Store Owner: can view all orders or filter by query email
+    if (isOwner(req)) {
+      const emailFilter = (req.query.email as string) || undefined;
+      const ordersList = await getAllOrders(emailFilter);
+      return res.json(Array.isArray(ordersList) ? ordersList : []);
+    }
+
+    // 2. Authenticated Customer: strictly limited to orders matching verified Firebase account email
+    if (req.user?.email) {
+      const ordersList = await getAllOrders(req.user.email);
+      return res.json(Array.isArray(ordersList) ? ordersList : []);
+    }
+
+    // Authenticated accounts without a usable email cannot read any orders.
+    return res.status(403).json({ error: 'A verified account email is required to view orders.' });
   } catch (error: any) {
     console.warn('Failed to retrieve orders from database:', error);
-    res.json([]);
+    return databaseError(res, error);
   }
 });
 
@@ -70,57 +108,62 @@ app.post('/api/orders', async (req, res) => {
         !['subtotal', 'discount', 'shipping', 'total'].every(key => Number.isFinite(orderData[key]) && orderData[key] >= 0) || !['AED', 'USD', 'PKR', 'EUR', 'GBP', 'SAR'].includes(orderData.currency)) {
       return res.status(400).json({ error: 'Invalid order details.' });
     }
-    if (!['cash_on_delivery', 'card', 'credit_card', 'apple_pay'].includes(orderData.paymentMethod)) {
-      orderData.paymentMethod = 'credit_card';
+    if (!['card', 'credit_card', 'apple_pay'].includes(orderData.paymentMethod)) {
+      return res.status(400).json({ error: 'Unsupported payment method. Online card checkout only.' });
     }
 
-    // Server-Side Anti-Tampering Price & Total Verification:
+    // Explicitly document payment classification:
+    // Never mark demo card checkout as real paid transactions
+    orderData.paymentMethod = 'credit_card';
+    orderData.notes = '[DEMO TRANSACTION] Test card checkout only - no payment processed';
+
+    // Server-authoritative prices and shipping in the order's selected currency.
+    const exchangeRates: Record<string, number> = {
+      AED: 3.67, USD: 1, PKR: 277.55, EUR: 0.92, GBP: 0.78, SAR: 3.75,
+    };
+    const currencyRate = exchangeRates[orderData.currency];
+    if (!currencyRate) return res.status(400).json({ error: 'Unsupported currency.' });
+    const money = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
     let verifiedSubtotal = 0;
     for (const item of orderData.items) {
       const catalogItem = PRODUCTS.find((p) => p.id === item.productId);
-      if (catalogItem) {
-        const expectedPrice = orderData.currency === 'AED'
-          ? Math.round(catalogItem.usdPrice * 3.67)
-          : orderData.currency === 'PKR'
-          ? catalogItem.pkrPrice
-          : catalogItem.usdPrice;
-        item.price = expectedPrice;
-        item.name = catalogItem.name;
+      if (!catalogItem || catalogItem.inStock === false) {
+        return res.status(400).json({ error: 'One or more products are unavailable or invalid.' });
       }
-      verifiedSubtotal += item.price * item.quantity;
+      if (!catalogItem.sizes.includes(item.size) || !catalogItem.colors.some((color) => color.name === item.color)) {
+        return res.status(400).json({ error: 'Invalid product size or color.' });
+      }
+      const unitPrice = orderData.currency === 'PKR' ? catalogItem.pkrPrice : catalogItem.usdPrice * currencyRate;
+      item.price = money(unitPrice);
+      item.name = catalogItem.name;
+      verifiedSubtotal = money(verifiedSubtotal + money(unitPrice * item.quantity));
     }
+    orderData.subtotal = verifiedSubtotal;
 
-    orderData.subtotal = Math.round(verifiedSubtotal * 100) / 100;
-
-    // Cap promo discount to maximum valid allowable discount (max 40% from FLASH40)
-    const maxDiscount = orderData.subtotal * 0.40;
-    if (Number(orderData.discount) > maxDiscount) {
-      orderData.discount = Math.round(maxDiscount * 100) / 100;
-    } else {
-      orderData.discount = Math.round(Number(orderData.discount || 0) * 100) / 100;
+    // Never trust a client-supplied discount/percentage. Disabled is the default.
+    const discountSettings = await getDiscountSettings();
+    const requestedCode = typeof orderData.promoCode === 'string' ? orderData.promoCode.trim().toUpperCase() : '';
+    if (requestedCode && (!discountSettings.enabled || discountSettings.code !== requestedCode)) {
+      return res.status(400).json({ error: 'Coupon is inactive or invalid.' });
     }
+    orderData.discount = discountSettings.enabled && requestedCode === discountSettings.code
+      ? money(verifiedSubtotal * discountSettings.percent / 100) : 0;
 
-    // Free shipping threshold: 150 AED across UAE, PKR 8,000 in PK, or USD 28
-    const isFreeShipping = orderData.currency === 'AED'
-      ? orderData.subtotal >= 150
-      : orderData.currency === 'PKR'
-      ? orderData.subtotal >= 8000
-      : orderData.subtotal >= 28;
-    orderData.shipping = isFreeShipping
-      ? 0
-      : orderData.currency === 'AED'
-      ? 25
-      : orderData.currency === 'PKR'
-      ? 250
-      : 5.99;
-
-    // True server-calculated total — cannot be spoofed by client tools
-    orderData.total = Math.max(0, Math.round((orderData.subtotal - orderData.discount + orderData.shipping) * 100) / 100);
+    const isFreeShipping = orderData.subtotal >= money(150 * currencyRate / 3.67);
+    const shippingMethod = orderData.shippingMethod === 'express' ? 'express' : 'standard';
+    if (shippingMethod === 'express' && orderData.city !== 'Dubai') {
+      return res.status(400).json({ error: 'Express delivery is only available in Dubai.' });
+    }
+    orderData.shippingMethod = shippingMethod;
+    orderData.shipping = isFreeShipping ? 0 : shippingMethod === 'express'
+      ? money(25 * currencyRate / 3.67)
+      : orderData.currency === 'PKR' ? 250 : money(5.99 * currencyRate);
+    orderData.total = money(Math.max(0, orderData.subtotal - orderData.discount + orderData.shipping));
 
     orderData.email = orderData.email.trim().toLowerCase();
     orderData.status = 'confirmed';
     const newOrder = await insertOrder(orderData);
-    console.log(`[VERIFIED LIVE ORDER LOGGED] #${orderData.id} - ${orderData.customerName} - ${orderData.currency} ${orderData.total}`);
+    console.log('[TEST ORDER SAVED]', { orderId: orderData.id, paymentStatus: 'unpaid' });
     res.status(201).json({ success: true, order: newOrder });
   } catch (error: any) {
     console.error('Failed to create order in database:', error);
@@ -162,15 +205,6 @@ app.get('/api/dashboard/stats', requireAuth, requireOwner, async (req, res) => {
   }
 });
 
-app.get('/api/download-project', (req, res) => {
-  const zipPath = path.resolve(__dirname, 'public/dubai-activewear.zip');
-  if (fs.existsSync(zipPath)) {
-    res.download(zipPath, 'Dubai-Activewear-Project.zip');
-  } else {
-    res.status(404).send('Project archive not found');
-  }
-});
-
 app.use('/api', (req, res) => { res.status(404).json({ error: 'API route not found.' }); });
 
 // Static or Vite Middleware
@@ -194,17 +228,18 @@ async function startServer() {
 
   const targetPort = Number(process.env.PORT) || PORT;
   const server = app.listen(targetPort, '0.0.0.0', () => {
-    console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:${targetPort}`);
+    console.log(`Dubai Activewear Full-Stack server running at http://0.0.0.0:${targetPort}`);
   });
 
   server.on('error', (err: any) => {
     if (err.code === 'EADDRINUSE' && targetPort !== 3000) {
       console.log(`Port ${targetPort} in use, falling back to 3000...`);
       app.listen(3000, '0.0.0.0', () => {
-        console.log(`ICON ACTIVEWEAR Full-Stack server running at http://0.0.0.0:3000`);
+        console.log(`Dubai Activewear Full-Stack server running at http://0.0.0.0:3000`);
       });
     }
   });
 }
 
 startServer();
+

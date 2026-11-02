@@ -75,7 +75,7 @@ export interface Order {
   shipping: number;
   total: number;
   currency: string;
-  paymentMethod: 'credit_card' | 'cash_on_delivery' | 'apple_pay';
+  paymentMethod: 'credit_card' | 'apple_pay' | 'cash_on_delivery';
   status: 'confirmed' | 'processing' | 'shipped' | 'delivered';
   createdAt: string;
   notes?: string;

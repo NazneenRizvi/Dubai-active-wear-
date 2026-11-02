@@ -74,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden md:inline text-neutral-400"> · Express Delivery across Dubai & All Emirates 🇦🇪</span>
         </div>
         <div className="hidden sm:block text-[10px] tracking-wider text-neutral-400">
-          CARDS & APPLE PAY / COD
+          ONLINE CARD PAYMENTS
         </div>
       </div>
 

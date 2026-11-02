@@ -1,3 +1,5 @@
+import { orderReference } from '../lib/orderReference';
+import { apiRequest } from '../lib/api';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
@@ -66,6 +68,30 @@ export const AdminPanel: React.FC = () => {
   const { formatPrice } = useCurrency();
   const { user, isOwner, login } = useAuth();
 
+  const [ownerCouponCode, setOwnerCouponCode] = useState('');
+  const [ownerCouponPercent, setOwnerCouponPercent] = useState(10);
+  const [ownerCouponEnabled, setOwnerCouponEnabled] = useState(false);
+  const [couponStatus, setCouponStatus] = useState('');
+  const [couponSaving, setCouponSaving] = useState(false);
+  useEffect(() => {
+    if (!isAdminViewOpen || !isOwner) return;
+    apiRequest('/api/admin/discount').then((v) => {
+      setOwnerCouponCode(v?.code || '');
+      setOwnerCouponPercent(v?.percent || 10);
+      setOwnerCouponEnabled(v?.enabled === true);
+    }).catch(() => setCouponStatus('Cannot load coupon settings.'));
+  }, [isAdminViewOpen, isOwner]);
+  const saveOwnerCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCouponSaving(true); setCouponStatus('');
+    try {
+      await apiRequest('/api/admin/discount', { method: 'PUT', body: JSON.stringify({
+        code: ownerCouponCode.trim().toUpperCase(), percent: ownerCouponPercent, enabled: ownerCouponEnabled
+      }) });
+      setCouponStatus(ownerCouponEnabled ? 'Coupon activated successfully.' : 'Coupon saved and disabled.');
+    } catch (err) { setCouponStatus(err instanceof Error ? err.message : 'Could not save settings.'); }
+    finally { setCouponSaving(false); }
+  };
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -430,22 +456,23 @@ export const AdminPanel: React.FC = () => {
 
   // Handle Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Order ID', 'Customer Name', 'Email', 'Phone', 'City', 'Status', 'Total USD', 'Date'];
+    const headers = ['Order ID', 'Customer Name', 'Email', 'Phone', 'City', 'Status', 'Total', 'Currency', 'Date'];
     const rows = orders.map((o) => [
-      o.id,
+      orderReference(o.id),
       `"${o.customerName}"`,
       o.email,
       o.phone,
       `"${o.city}"`,
       o.status,
       o.total,
+      o.currency,
       o.createdAt
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `ICON_ACTIVEWEAR_ORDERS_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `DUBAI_ACTIVEWEAR_ORDERS_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -514,7 +541,7 @@ export const AdminPanel: React.FC = () => {
             {isSidebarOpen ? (
               <div>
                 <span className="text-xs font-black tracking-widest uppercase font-display block text-neutral-900">
-                  ICON ACTIVEWEAR
+                  DUBAI ACTIVEWEAR
                 </span>
                 <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
                   Store Admin HQ (Dubai, UAE)
@@ -640,7 +667,7 @@ export const AdminPanel: React.FC = () => {
               <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-black tracking-widest uppercase font-display block text-neutral-900">
-                    ICON ACTIVEWEAR
+                    DUBAI ACTIVEWEAR
                   </span>
                   <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">
                     Admin HQ (Karachi)
@@ -753,7 +780,7 @@ export const AdminPanel: React.FC = () => {
               <Menu className="w-5 h-5" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-sm sm:text-base md:text-lg font-black uppercase tracking-tight text-neutral-900 truncate">
+              <h1 className="text-xs sm:text-base md:text-lg font-black uppercase tracking-tight text-neutral-900 whitespace-normal break-words leading-tight">
                 {activeTab === 'dashboard' && 'Executive Store Dashboard'}
                 {activeTab === 'products' && 'Product Catalog Management'}
                 {activeTab === 'orders' && 'Real-Time Orders Fulfillment'}
@@ -909,7 +936,7 @@ export const AdminPanel: React.FC = () => {
                 <div className="text-[11px] text-neutral-500 font-semibold flex items-center gap-1">
                   <span>
                     {periodOrdersCount > 0
-                      ? `${periodOrdersCount} verified real purchase${periodOrdersCount > 1 ? 's' : ''}`
+                      ? `${periodOrdersCount} order${periodOrdersCount > 1 ? 's' : ''}`
                       : 'AED 0 (Clean fresh store, 0 sales)'}
                   </span>
                 </div>
@@ -967,7 +994,7 @@ export const AdminPanel: React.FC = () => {
             <div className="bg-white p-4 sm:p-6 border border-neutral-200 shadow-2xs space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-neutral-100">
                 <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider text-neutral-900 flex items-center gap-2">
+                  <h3 className="text-xs sm:text-sm font-black uppercase tracking-normal sm:tracking-wider text-neutral-900 flex flex-wrap items-start gap-2 break-words leading-relaxed">
                     <BarChart3 className="w-4 h-4 text-neutral-700" />
                     <span>
                       {analyticsMetric === 'revenue' ? 'Total Income (Revenue)' : 'Total Orders Volume'} — By{' '}
@@ -1237,7 +1264,7 @@ export const AdminPanel: React.FC = () => {
                     ) : (
                       orders.slice(0, 5).map((order) => (
                         <tr key={order.id} className="hover:bg-neutral-50 transition-colors">
-                          <td className="p-3 font-mono font-bold text-neutral-900">{order.id}</td>
+                          <td className="p-3 font-mono font-bold text-neutral-900">{orderReference(order.id)}</td>
                           <td className="p-3 font-semibold text-neutral-800">{order.customerName}</td>
                           <td className="p-3 font-mono">{order.phone}</td>
                           <td className="p-3">{order.city}</td>
@@ -1425,7 +1452,7 @@ export const AdminPanel: React.FC = () => {
                     filteredOrders.map((order) => (
                       <tr key={order.id} className="hover:bg-neutral-50 transition-colors">
                         <td className="p-3">
-                          <p className="font-mono font-bold text-neutral-900">{order.id}</p>
+                          <p className="font-mono font-bold text-neutral-900">{orderReference(order.id)}</p>
                           <p className="text-[10px] text-neutral-400">
                             {new Date(order.createdAt).toLocaleDateString('en-US', {
                               month: 'short',
@@ -1454,9 +1481,21 @@ export const AdminPanel: React.FC = () => {
 
                         <td className="p-3">
                           <p className="font-black text-neutral-900">{formatPrice(order.total)}</p>
-                          <p className="text-[10px] font-bold text-neutral-400 uppercase">
-                            {order.paymentMethod === 'cash_on_delivery' ? 'COD' : 'Paid'}
-                          </p>
+                          <div className="mt-0.5">
+                            {order.paymentMethod !== 'credit_card' && order.paymentMethod !== 'apple_pay' ? (
+                              <span className="text-amber-800 bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-bold tracking-wider uppercase inline-block">
+                                Legacy Order (Unpaid)
+                              </span>
+                            ) : order.notes?.includes('[DEMO TRANSACTION]') || order.paymentMethod?.includes('demo') ? (
+                              <span className="text-rose-800 bg-rose-100/90 px-1.5 py-0.5 text-[9px] font-bold tracking-wider uppercase inline-block" title="Demo test checkout - no real card was charged">
+                                Demo (Unpaid)
+                              </span>
+                            ) : (
+                              <span className="text-emerald-800 bg-emerald-100/90 px-1.5 py-0.5 text-[9px] font-bold tracking-wider uppercase inline-block">
+                                Card
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="p-3">
@@ -1479,8 +1518,8 @@ export const AdminPanel: React.FC = () => {
                           <a
                             href={`https://wa.me/${order.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
                               `*Assalam-o-Alaikum ${order.customerName}!* 👋\n\n` +
-                              `Your activewear order *${order.id}* from *ICON Activewear Karachi* is being processed!\n\n` +
-                              `• *Total Amount:* ${formatPrice(order.total)} (Cash on Delivery)\n` +
+                              `Your activewear order *${orderReference(order.id)}* from *Dubai Activewear* is being processed!\n\n` +
+                              `• *Total Amount:* ${formatPrice(order.total)} (Payment Pending)\n` +
                               `• *Shipping Address:* ${order.address}, ${order.city}\n\n` +
                               `Please confirm if you are available to receive the parcel at this address. Shukriya!`
                             )}`}
@@ -1514,51 +1553,24 @@ export const AdminPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 4: Coupons */}
+        {/* Owner-only coupon management: no hardcoded active coupons. */}
         {activeTab === 'coupons' && (
-          <div className="p-6 space-y-4">
-            <div className="bg-white p-5 border border-neutral-200 shadow-2xs space-y-4">
-              <h3 className="text-sm font-black uppercase tracking-wider text-neutral-900">
-                Active Promo Codes & Coupons
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 border border-neutral-200 bg-neutral-50 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-sm text-neutral-900 bg-white px-2 py-0.5 border border-neutral-300">
-                      FLASH40
-                    </span>
-                    <span className="text-[10px] bg-amber-400 text-black font-black px-1.5 py-0.2 rounded-full uppercase">
-                      40% OFF
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-600">Active Flash Sale promotion on all drops.</p>
-                </div>
-
-                <div className="p-4 border border-neutral-200 bg-neutral-50 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-sm text-neutral-900 bg-white px-2 py-0.5 border border-neutral-300">
-                      ICON15 / VIP15
-                    </span>
-                    <span className="text-[10px] bg-emerald-500 text-white font-black px-1.5 py-0.2 rounded-full uppercase">
-                      15% OFF
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-600">Newsletter signup VIP club reward.</p>
-                </div>
-
-                <div className="p-4 border border-neutral-200 bg-neutral-50 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-black text-sm text-neutral-900 bg-white px-2 py-0.5 border border-neutral-300">
-                      FREESHIP
-                    </span>
-                    <span className="text-[10px] bg-blue-500 text-white font-black px-1.5 py-0.2 rounded-full uppercase">
-                      FREE COD
-                    </span>
-                  </div>
-                  <p className="text-xs text-neutral-600">Free delivery unlock across Pakistan.</p>
-                </div>
-              </div>
-            </div>
+          <div className="p-6">
+            <form onSubmit={saveOwnerCoupon} className="bg-white border border-neutral-200 p-5 space-y-4 max-w-lg">
+              <h3 className="text-sm font-black uppercase">Owner-Controlled Discounts</h3>
+              <p className="text-xs text-neutral-600">All discounts are OFF unless you activate a coupon here. Maximum 40%.</p>
+              <label className="block text-xs font-bold">Coupon code
+                <input required minLength={4} maxLength={24} pattern="[A-Za-z0-9_-]{4,24}" value={ownerCouponCode} onChange={e => setOwnerCouponCode(e.target.value.toUpperCase())} className="block border p-2 mt-1 w-full" placeholder="MYSALE10" />
+              </label>
+              <label className="block text-xs font-bold">Percentage (1–40)
+                <input type="number" required min={1} max={40} step={1} value={ownerCouponPercent} onChange={e => setOwnerCouponPercent(Number(e.target.value))} className="block border p-2 mt-1 w-full" />
+              </label>
+              <label className="flex items-center gap-2 text-xs font-bold">
+                <input type="checkbox" checked={ownerCouponEnabled} onChange={e => setOwnerCouponEnabled(e.target.checked)} /> Enable coupon for customers
+              </label>
+              <button type="submit" disabled={couponSaving} className="bg-black text-white px-5 py-3 text-xs font-bold disabled:opacity-50">{couponSaving ? 'Saving...' : 'SAVE DISCOUNT SETTINGS'}</button>
+              {couponStatus && <p role="status" className="text-xs">{couponStatus}</p>}
+            </form>
           </div>
         )}
 

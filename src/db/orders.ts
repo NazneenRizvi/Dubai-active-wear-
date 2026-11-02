@@ -1,7 +1,20 @@
-import { db, disablePostgres } from './index.ts';
+
+import { initializeApp, getApps, applicationDefault, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 import { normalizeOrders } from '../lib/orders.ts';
-import { orders, orderItems } from './schema.ts';
-import { eq, desc } from 'drizzle-orm';
+
+// Trusted server-only SDK. Never put service account credentials into VITE_* variables.
+const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+const projectId = process.env.FIREBASE_PROJECT_ID || 'icone-active-wear-2';
+
+const adminApp = getApps()[0] || initializeApp({
+  credential: serviceAccount
+    ? cert(JSON.parse(serviceAccount))
+    : applicationDefault(),
+  projectId,
+});
+
+const firestoreDb = getFirestore(adminApp);
 
 export interface OrderInput {
   id: string;
@@ -34,106 +47,61 @@ export interface OrderInput {
   }>;
 }
 
-interface InMemoryOrder {
-  id: string;
-  customerName: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  postalCode?: string;
-  country?: string;
-  currency: string;
-  subtotal: number;
-  discount: number;
-  shipping: number;
-  total: number;
-  status: string;
-  paymentMethod: string;
-  shippingMethod: string;
-  trackingCarrier?: string;
-  trackingNumber?: string;
-  notes?: string;
-  createdAt: string;
-  items: Array<{
-    productId: string;
-    name: string;
-    color: string;
-    size: string;
-    quantity: number;
-    price: number;
-    image?: string;
-  }>;
-}
-
-// Real in-memory orders store — starts clean with 0 orders for real sales only
-const memoryOrders: InMemoryOrder[] = [];
-
+// Firestore is the sole source of truth.
+// Never return temporary memory orders as real orders.
 export async function getAllOrders(email?: string) {
-  if (db) {
-    try {
-      const rawOrders = await db
-        .select()
-        .from(orders)
-        .where(email ? eq(orders.email, email) : undefined)
-        .orderBy(desc(orders.createdAt));
-      const allItems = await db.select().from(orderItems);
+  const snapshot = await firestoreDb.collection('orders').get();
 
-      return normalizeOrders(
-        rawOrders.map((ord: any) => {
-          const itemsForOrder = allItems.filter((it: any) => it.orderId === ord.id);
-          return {
-            ...ord,
-            createdAt: ord.createdAt?.toISOString() || '',
-            items: itemsForOrder.map((it: any) => ({
-              productId: it.productId,
-              name: it.name,
-              color: it.color,
-              size: it.size,
-              quantity: it.quantity,
-              price: it.price,
-              image: it.image || '',
-            })),
-          };
-        })
-      );
-    } catch (error: any) {
-      console.warn('[PostgreSQL query fallback] Using in-memory orders:', error?.message || error);
-      disablePostgres(error);
-    }
-  }
+  // TypeScript fix: identify email and createdAt fields.
+  const records: Array<{
+    id: string;
+    email?: string;
+    createdAt?: string;
+  }> = snapshot.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+  }));
 
-  // In-memory fallback
   const filtered = email
-    ? memoryOrders.filter((o) => (o.email || '').toLowerCase().trim() === email.toLowerCase().trim())
-    : memoryOrders;
+    ? records.filter(
+        o =>
+          String(o.email || '').toLowerCase().trim() ===
+          email.toLowerCase().trim()
+      )
+    : records;
+
+  filtered.sort(
+    (a, b) =>
+      new Date(String(b.createdAt || 0)).getTime() -
+      new Date(String(a.createdAt || 0)).getTime()
+  );
 
   return normalizeOrders(filtered);
 }
 
 export async function insertOrder(data: OrderInput) {
-  const newMemoryOrder: InMemoryOrder = {
+  const cleanOrder = {
     id: data.id,
-    customerName: data.customerName,
-    email: data.email,
-    phone: data.phone,
-    address: data.address,
-    city: data.city,
-    postalCode: data.postalCode || '',
-    country: data.country || '',
+    customerName: data.customerName.trim(),
+    email: data.email.trim().toLowerCase(),
+    phone: data.phone.trim(),
+    address: data.address.trim(),
+    city: data.city.trim(),
+    postalCode: (data.postalCode || '').trim(),
+    country: (data.country || 'United Arab Emirates').trim(),
     currency: data.currency || 'AED',
     subtotal: Number(data.subtotal) || 0,
     discount: Number(data.discount) || 0,
     shipping: Number(data.shipping) || 0,
     total: Number(data.total) || 0,
     status: data.status || 'confirmed',
-    paymentMethod: data.paymentMethod || 'cash_on_delivery',
+    paymentMethod: data.paymentMethod || 'credit_card',
     shippingMethod: data.shippingMethod || 'standard',
     trackingCarrier: data.trackingCarrier || '',
     trackingNumber: data.trackingNumber || '',
     notes: data.notes || '',
-    createdAt: new Date().toISOString(),
-    items: (data.items || []).map((item) => ({
+    createdAt: (data as any).createdAt || new Date().toISOString(),
+    items: (data.items || []).map(item => ({
       productId: item.productId,
       name: item.name,
       color: item.color,
@@ -144,55 +112,39 @@ export async function insertOrder(data: OrderInput) {
     })),
   };
 
-  memoryOrders.unshift(newMemoryOrder);
+  const orderDocRef = firestoreDb.collection('orders').doc(cleanOrder.id);
 
-  if (db) {
-    try {
-      await db.transaction(async (tx: any) => {
-        await tx.insert(orders).values({
-          id: data.id,
-          customerName: data.customerName,
-          email: data.email,
-          phone: data.phone,
-          address: data.address,
-          city: data.city,
-          postalCode: data.postalCode || '',
-          country: data.country || '',
-          currency: data.currency || 'AED',
-          subtotal: Number(data.subtotal) || 0,
-          discount: Number(data.discount) || 0,
-          shipping: Number(data.shipping) || 0,
-          total: Number(data.total) || 0,
-          status: data.status || 'confirmed',
-          paymentMethod: data.paymentMethod || 'cash_on_delivery',
-          shippingMethod: data.shippingMethod || 'standard',
-          trackingCarrier: data.trackingCarrier || null,
-          trackingNumber: data.trackingNumber || null,
-          notes: data.notes || null,
-        });
+  // Atomic create: a concurrent retry cannot overwrite an existing order.
+  try {
+    await orderDocRef.create(cleanOrder);
+    return normalizeOrders([cleanOrder])[0];
+  } catch (error: any) {
+    // Only duplicate-ID conflict may return an existing order,
+    // and only for the same customer.
+    if (error?.code === 6 || error?.code === 'already-exists') {
+      const existing = await orderDocRef.get();
 
-        if (data.items && data.items.length > 0) {
-          await tx.insert(orderItems).values(
-            data.items.map((item) => ({
-              orderId: data.id,
-              productId: item.productId,
-              name: item.name,
-              color: item.color,
-              size: item.size,
-              quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
-              price: Number(item.price) || 0,
-              image: item.image || null,
-            }))
-          );
-        }
-      });
-    } catch (error: any) {
-      console.warn('[PostgreSQL insert fallback] Stored order in memory only:', error?.message || error);
-      disablePostgres(error);
+      if (
+        !existing.exists ||
+        String(existing.data()?.email || '').toLowerCase() !== cleanOrder.email
+      ) {
+        throw new Error('Order ID conflict. Please contact support.');
+      }
+
+      return normalizeOrders([
+        { ...existing.data(), id: existing.id },
+      ])[0];
     }
-  }
 
-  return newMemoryOrder;
+    console.error(
+      '[Firestore order write failed]',
+      error?.code || error?.message
+    );
+
+    throw new Error(
+      'Database unavailable. Order could not be permanently saved.'
+    );
+  }
 }
 
 export async function updateOrderState(
@@ -201,51 +153,32 @@ export async function updateOrderState(
   trackingCarrier?: string,
   trackingNumber?: string
 ) {
-  const existing = memoryOrders.find((o) => o.id === orderId);
-  if (existing) {
-    existing.status = status;
-    if (trackingCarrier !== undefined) existing.trackingCarrier = trackingCarrier;
-    if (trackingNumber !== undefined) existing.trackingNumber = trackingNumber;
+  const ref = firestoreDb.collection('orders').doc(orderId);
+
+  const updatePayload: Record<string, unknown> = {
+    status,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (trackingCarrier !== undefined) {
+    updatePayload.trackingCarrier = trackingCarrier;
   }
 
-  if (db) {
-    try {
-      const [updated] = await db
-        .update(orders)
-        .set({
-          status,
-          ...(trackingCarrier ? { trackingCarrier } : {}),
-          ...(trackingNumber ? { trackingNumber } : {}),
-        })
-        .where(eq(orders.id, orderId))
-        .returning();
-
-      if (updated) return updated;
-    } catch (error) {
-      console.warn('[PostgreSQL update fallback] Updated order in memory only:', error);
-    }
+  if (trackingNumber !== undefined) {
+    updatePayload.trackingNumber = trackingNumber;
   }
 
-  return existing || null;
+  await ref.update(updatePayload);
+
+  const doc = await ref.get();
+
+  return doc.exists
+    ? normalizeOrders([{ ...doc.data(), id: doc.id }])[0]
+    : null;
 }
 
 export async function deleteOrderById(orderId: string) {
-  const index = memoryOrders.findIndex((o) => o.id === orderId);
-  if (index !== -1) {
-    memoryOrders.splice(index, 1);
-  }
-
-  if (db) {
-    try {
-      await db.transaction(async (tx: any) => {
-        await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
-        await tx.delete(orders).where(eq(orders.id, orderId));
-      });
-    } catch (error) {
-      console.warn('[PostgreSQL delete fallback] Deleted order in memory only:', error);
-    }
-  }
-
+  await firestoreDb.collection('orders').doc(orderId).delete();
   return { success: true };
 }
 
@@ -253,20 +186,40 @@ export async function getLiveDashboardStats() {
   const allOrders = await getAllOrders();
 
   const totalOrders = allOrders.length;
-  // Calculate total revenue standardized to AED
+
+  // Standardize revenue calculation.
   const totalRevenue = allOrders.reduce((sum, o) => {
-    const val = typeof o.total === 'number' ? o.total : Number(o.total) || 0;
+    const val =
+      typeof o.total === 'number'
+        ? o.total
+        : Number(o.total) || 0;
+
     if (o.currency === 'AED') return sum + val;
     if (o.currency === 'USD') return sum + Math.round(val * 3.67);
     if (o.currency === 'PKR') return sum + Math.round(val / 75.5);
+
     return sum + val;
   }, 0);
-  const uniqueEmails = new Set(allOrders.map((o) => (o.email || '').toLowerCase().trim()).filter(Boolean));
-  const totalCustomers = uniqueEmails.size;
-  const avgOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
 
-  // Top sellers based on live actual purchases
-  const productSalesMap = new Map<string, { name: string; quantity: number; revenue: number }>();
+  const uniqueEmails = new Set(
+    allOrders
+      .map(o => (o.email || '').toLowerCase().trim())
+      .filter(Boolean)
+  );
+
+  const totalCustomers = uniqueEmails.size;
+
+  const avgOrderValue =
+    totalOrders > 0
+      ? Math.round(totalRevenue / totalOrders)
+      : 0;
+
+  // Top selling products by quantity.
+  const productSalesMap = new Map<
+    string,
+    { name: string; quantity: number; revenue: number }
+  >();
+
   for (const order of allOrders) {
     for (const item of order.items) {
       const existing = productSalesMap.get(item.productId) || {
@@ -274,12 +227,16 @@ export async function getLiveDashboardStats() {
         quantity: 0,
         revenue: 0,
       };
+
       existing.quantity += item.quantity;
-      const itemRev = order.currency === 'AED'
-        ? item.price * item.quantity
-        : order.currency === 'USD'
-        ? Math.round(item.price * item.quantity * 3.67)
-        : Math.round((item.price * item.quantity) / 75.5);
+
+      const itemRev =
+        order.currency === 'AED'
+          ? item.price * item.quantity
+          : order.currency === 'USD'
+          ? Math.round(item.price * item.quantity * 3.67)
+          : Math.round((item.price * item.quantity) / 75.5);
+
       existing.revenue += itemRev;
       productSalesMap.set(item.productId, existing);
     }
@@ -295,28 +252,44 @@ export async function getLiveDashboardStats() {
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 5);
 
-  // Revenue trend by date from actual orders
-  const dateMap = new Map<string, { revenue: number; orders: number }>();
+  // Revenue trend.
+  const dateMap = new Map<
+    string,
+    { revenue: number; orders: number }
+  >();
+
   for (const order of allOrders) {
     const dateKey = order.createdAt
-      ? new Date(order.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      ? new Date(order.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        })
       : 'Recent';
-    const existing = dateMap.get(dateKey) || { revenue: 0, orders: 0 };
-    const orderVal = order.currency === 'AED'
-      ? order.total
-      : order.currency === 'USD'
-      ? Math.round(order.total * 3.67)
-      : Math.round(order.total / 75.5);
+
+    const existing = dateMap.get(dateKey) || {
+      revenue: 0,
+      orders: 0,
+    };
+
+    const orderVal =
+      order.currency === 'AED'
+        ? order.total
+        : order.currency === 'USD'
+        ? Math.round(order.total * 3.67)
+        : Math.round(order.total / 75.5);
+
     existing.revenue += orderVal;
     existing.orders += 1;
     dateMap.set(dateKey, existing);
   }
 
-  const revenueTrend = Array.from(dateMap.entries()).map(([day, val]) => ({
-    day,
-    revenue: val.revenue,
-    orders: val.orders,
-  }));
+  const revenueTrend = Array.from(dateMap.entries()).map(
+    ([day, val]) => ({
+      day,
+      revenue: val.revenue,
+      orders: val.orders,
+    })
+  );
 
   return {
     totalRevenue,

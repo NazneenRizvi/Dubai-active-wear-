@@ -8,9 +8,9 @@ export function normalizeOrders(value: unknown): Order[] {
   if (!Array.isArray(value)) return [];
   return value.filter(row => row && typeof row === 'object' && row.id != null).map(row => ({
     ...row, id: String(row.id),
-    customerName: text(row.customerName ?? row.customer_name),
-    email: text(row.email), phone: text(row.phone), city: text(row.city),
-    address: text(row.address), postalCode: text(row.postalCode ?? row.postal_code),
+    customerName: text(row.customerName ?? row.customer_name).trim(),
+    email: text(row.email).trim().toLowerCase(), phone: text(row.phone).trim(), city: text(row.city).trim(),
+    address: text(row.address).trim(), postalCode: text(row.postalCode ?? row.postal_code).trim(),
     country: text(row.country), currency: text(row.currency) || 'USD',
     status: text(row.status) || 'confirmed', notes: text(row.notes),
     createdAt: text(row.createdAt ?? row.created_at),

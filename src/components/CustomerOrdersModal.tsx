@@ -1,3 +1,4 @@
+import { orderReference } from '../lib/orderReference';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
@@ -70,7 +71,7 @@ export const CustomerOrdersModal: React.FC = () => {
 
   const displayedOrders: Order[] = orders.filter((order) => {
     if (query) {
-      const matchId = order.id?.toLowerCase().includes(query);
+      const matchId = order.id?.toLowerCase().includes(query) || orderReference(order.id).toLowerCase().includes(query);
       const matchEmail = order.email?.toLowerCase().includes(query);
       const matchPhone = order.phone?.toLowerCase().includes(query);
       const matchName = order.customerName?.toLowerCase().includes(query);
@@ -82,7 +83,7 @@ export const CustomerOrdersModal: React.FC = () => {
     }
 
     // Guest checkout: show all orders saved in this browser
-    return true;
+    return false;
   });
 
   const getStatusBadge = (status: string) => {
@@ -165,7 +166,7 @@ export const CustomerOrdersModal: React.FC = () => {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Order ID (e.g. ICON-...), email, or phone number..."
+              placeholder="Search by Order ID (e.g. DA-...), email, or phone number..."
               className="w-full bg-white border border-neutral-300 pl-10 pr-4 py-2.5 text-xs sm:text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-black font-mono transition-colors"
             />
             {searchQuery && (
@@ -217,7 +218,7 @@ export const CustomerOrdersModal: React.FC = () => {
           ) : (
             displayedOrders.map((order) => (
               <div
-                key={order.id}
+                key={orderReference(order.id)}
                 className="border border-neutral-300 bg-white p-4 sm:p-5 space-y-3 shadow-xs hover:border-black transition-colors"
               >
                 {/* Order Top Bar */}
@@ -225,7 +226,7 @@ export const CustomerOrdersModal: React.FC = () => {
                   <div>
                     <span className="text-[10px] uppercase font-mono text-neutral-500 block">Order ID</span>
                     <p className="font-mono font-bold text-xs sm:text-sm text-neutral-900 break-all">
-                      {order.id}
+                      {orderReference(order.id)}
                     </p>
                     <div className="flex items-center gap-2 text-[10px] text-neutral-500 mt-0.5">
                       <span className="flex items-center gap-1">
@@ -378,7 +379,11 @@ export const CustomerOrdersModal: React.FC = () => {
                       {formatPrice(order.total)}
                     </strong>
                     <span className="text-[10px] text-neutral-500 block">
-                      {order.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Card Payment'}
+                      {order.paymentMethod !== 'credit_card' && order.paymentMethod !== 'apple_pay'
+                        ? 'Legacy Order (Unpaid)'
+                        : order.notes?.includes('[DEMO TRANSACTION]')
+                        ? 'Demo Card (Test Mode - Uncharged)'
+                        : 'Card Payment'}
                     </span>
                   </div>
                 </div>

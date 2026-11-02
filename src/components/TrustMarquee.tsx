@@ -14,8 +14,8 @@ const TRUST_BADGES = [
   },
   {
     icon: CheckCircle2,
-    title: 'CARDS, APPLE PAY & COD',
-    desc: 'Pay securely with UAE card, Apple Pay, or cash on delivery'
+    title: 'ONLINE CARD CHECKOUT',
+    desc: 'Card payment option available after gateway activation'
   },
   {
     icon: RotateCcw,
@@ -48,8 +48,8 @@ const TESTIMONIALS = [
     name: 'Dr. Fatima Tariq',
     city: 'Lahore (DHA)',
     rating: 5,
-    title: 'Super fast COD delivery',
-    text: 'Received my parcel in 2 days via Trax COD. The packaging was luxury grade and the low-impact sports bra is so flattering and supportive. Will definitely order the pink set next!',
+    title: 'Convenient delivery',
+    text: 'Received my parcel in 2 days. The packaging was luxury grade and the low-impact sports bra is so flattering and supportive. Will definitely order the pink set next!',
     product: 'Cloud Ribbed Sports Bra',
     date: '4 days ago'
   },
@@ -98,10 +98,10 @@ export const TrustMarquee: React.FC = () => {
           <div>
             <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-neutral-500 mb-1">
               <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-              <span>REAL ATHLETE FEEDBACK</span>
+              <span>PRODUCT FEEDBACK PREVIEWS</span>
             </div>
             <h3 className="text-xl sm:text-2xl font-black font-display tracking-tight text-neutral-900 uppercase">
-              LOVED BY 10,000+ ATHLETES ACROSS PAKISTAN
+              EXPLORE OUR ACTIVEWEAR COLLECTION
             </h3>
           </div>
           <div className="flex items-center gap-1.5 text-xs font-bold text-neutral-800">

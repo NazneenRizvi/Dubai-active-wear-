@@ -19,7 +19,7 @@ const DEFAULT_REVIEWS: Review[] = [
     title: 'Squat proof & beautiful fit!',
     comment: 'The 280 GSM knit is truly opaque. I wore this for heavy deadlifts in Lahore and had zero roll down on the waist.',
     date: '3 days ago',
-    isVerified: true
+    isVerified: false
   },
   {
     id: 'rev-2',
@@ -27,9 +27,9 @@ const DEFAULT_REVIEWS: Review[] = [
     userName: 'Sana M.',
     rating: 5,
     title: 'Extremely soft microfiber',
-    comment: 'Better than imported brands priced 3x higher. Delivered in 2 days to Karachi via COD.',
+    comment: 'Better than imported brands priced 3x higher. Comfortable fit and lovely fabric.',
     date: '1 week ago',
-    isVerified: true
+    isVerified: false
   },
   {
     id: 'rev-3',
@@ -39,17 +39,21 @@ const DEFAULT_REVIEWS: Review[] = [
     title: 'Great compression',
     comment: 'True to size. I am usually a Small and Small fit perfectly without pinching.',
     date: '2 weeks ago',
-    isVerified: true
+    isVerified: false
   }
 ];
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product, onClose }) => {
   return product ? <ProductDetailContent key={product.id} product={product} onClose={onClose} /> : null;
 };
-const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onClose }) => {
+
+const ProductDetailContent: React.FC<{
+  product: Product;
+  onClose: () => void;
+}> = ({ product, onClose }) => {
 
   const { formatPrice } = useCurrency();
-  const { addToCart, ownerWhatsApp, toggleWishlist, isInWishlist, setSelectedProductForDetail } = useCart();
+  const { addToCart, ownerWhatsApp, toggleWishlist, isInWishlist, setSelectedProductForDetail, setIsCheckoutOpen } = useCart();
 
   const [selectedColor, setSelectedColor] = useState<ProductColor>(product.colors[0]);
   const [selectedSize, setSelectedSize] = useState<ProductSize>(product.sizes[1] || 'S');
@@ -80,7 +84,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
     const cleanPhone = ownerWhatsApp.replace(/[^0-9]/g, '');
     const priceText = formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined);
     const msg = encodeURIComponent(
-      `*Assalam-o-Alaikum ICON ACTIVEWEAR!*\n\n` +
+      `*Hello Dubai Activewear!*\n\n` +
       `I want to place an order for:\n` +
       `• *Product:* ${product.name}\n` +
       `• *SKU:* ICON-${product.slug.toUpperCase().slice(0, 10)}\n` +
@@ -88,7 +92,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
       `• *Size:* ${selectedSize}\n` +
       `• *Quantity:* ${quantity}\n` +
       `• *Total Price:* ${priceText}\n\n` +
-      `Please confirm Cash on Delivery (COD) dispatch to my address. Shukriya!`
+      `Please confirm product availability and secure online payment options. Thank you!`
     );
     return `https://wa.me/${cleanPhone}?text=${msg}`;
   })();
@@ -105,6 +109,13 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
     setOpenAccordions((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleBuyNow = () => {
+    addToCart(product, selectedColor, selectedSize, quantity);
+    setIsCheckoutOpen(true);
+    onClose();
+  };
+
+
   const handleAdd = () => {
     addToCart(product, selectedColor, selectedSize, quantity);
     setIsAdded(true);
@@ -113,6 +124,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
       onClose();
     }, 900);
   };
+
 
   const handleSubmitReview = (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,8 +138,9 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
       title: newReviewTitle || 'Verified Athlete Review',
       comment: newReviewComment,
       date: 'Just now',
-      isVerified: true
+      isVerified: false
     };
+
 
     setReviewsList([newRev, ...reviewsList]);
     setReviewSubmitted(true);
@@ -136,6 +149,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
     setNewReviewComment('');
     setTimeout(() => setReviewSubmitted(false), 3000);
   };
+
 
   // Related products
   const relatedProducts = PRODUCTS.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3);
@@ -150,6 +164,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
       }
     };
 
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('touchstart', handleClickOutside);
 
@@ -157,6 +172,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
     };
+
   }, [onClose]);
 
   // Close on Escape key
@@ -166,6 +182,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
         onClose();
       }
     };
+
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -178,7 +195,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
     >
       <div
         ref={modalRef}
-        className="relative bg-white w-full max-w-5xl max-h-[92vh] overflow-y-auto shadow-2xl border border-neutral-300"
+        className="relative bg-white w-full max-w-5xl sm:max-w-3xl md:max-w-2xl max-h-[92vh] overflow-y-auto shadow-2xl border border-neutral-300"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
@@ -198,14 +215,14 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
           <span>/</span>
           <span className="font-semibold text-neutral-700">{product.categoryLabel}</span>
           <span>/</span>
-          <span className="font-black text-neutral-900 truncate max-w-[200px]">{product.name}</span>
+          <span className="font-black text-neutral-900 truncate max-w-50">{product.name}</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-0">
           {/* Left Column: Product Image Gallery & Thumbnails */}
           <div className="md:col-span-6 bg-[#F6F6F6] p-6 flex flex-col items-center justify-between border-b md:border-b-0 md:border-r border-neutral-200">
             {/* Main Stage Image */}
-            <div className="relative aspect-[3/4] w-full max-w-md overflow-hidden bg-white shadow-xs group">
+            <div className="relative aspect-3/4 w-full max-w-md overflow-hidden bg-white shadow-xs group">
               <img
                 src={activeImage}
                 alt={product.name}
@@ -260,7 +277,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   </span>
                 )}
                 <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 uppercase tracking-wider">
-                  Cash on Delivery
+                  Online Checkout
                 </span>
               </div>
 
@@ -275,7 +292,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   ))}
                 </div>
                 <span className="font-bold text-neutral-900">{product.rating}</span>
-                <span className="text-neutral-400">({product.reviewsCount} verified reviews)</span>
+                <span className="text-neutral-400">({product.reviewsCount} ratings)</span>
               </div>
 
               {/* Short Description */}
@@ -368,11 +385,11 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
 
               {/* Action Buttons: Add to Bag + Wishlist */}
               <div className="pt-3 space-y-2.5">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3">
                   <button
                     onClick={handleAdd}
                     disabled={isAdded}
-                    className="flex-1 py-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs sm:text-sm font-black tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    className="flex-1 min-w-0 py-3.5 px-2 bg-black hover:bg-neutral-800 active:scale-95 text-white text-[11px] sm:text-sm font-black tracking-normal sm:tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-1 sm:gap-2 cursor-pointer"
                   >
                     {isAdded ? (
                       <>
@@ -382,14 +399,21 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                     ) : (
                       <>
                         <ShoppingBag className="w-4 h-4" />
-                        <span>ADD TO BAG · {formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined)}</span>
+                        <span>ADD TO BAG</span>
                       </>
                     )}
                   </button>
 
                   <button
+                    onClick={handleBuyNow}
+                    className="flex-1 min-w-0 py-3.5 px-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[11px] sm:text-sm font-black tracking-normal sm:tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-1 sm:gap-2 cursor-pointer"
+                  >
+                  BUY IT NOW
+                  </button>
+
+                  <button
                     onClick={() => toggleWishlist(product)}
-                    className={`p-4 border transition-colors cursor-pointer ${
+                    className={`p-3 sm:p-4 border transition-colors cursor-pointer ${
                       isWishlisted
                         ? 'border-red-500 bg-red-50 text-red-600'
                         : 'border-neutral-300 hover:border-black text-neutral-800'
@@ -408,7 +432,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   className="w-full py-3 bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-black tracking-wider uppercase transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
                 >
                   <MessageCircle className="w-4 h-4 fill-white" />
-                  <span>Order Directly via WhatsApp (COD)</span>
+                  <span>Ask About Product on WhatsApp</span>
                 </a>
               </div>
 
@@ -489,20 +513,20 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                   )}
                 </div>
 
-                {/* 3. Shipping & COD Policy */}
+                {/* 3. Shipping & Online Payment */}
                 <div className="border border-neutral-200">
                   <button
                     onClick={() => toggleAccordion('shipping')}
                     className="w-full px-4 py-3 bg-neutral-50 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-900 cursor-pointer"
                   >
-                    <span>Shipping & COD Terms (Pakistan)</span>
+                    <span>Shipping & Online Payment (UAE)</span>
                     {openAccordions.shipping ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
                   {openAccordions.shipping && (
                     <div className="p-4 bg-white text-xs text-neutral-600 space-y-2">
                       <p>• <strong>Dubai Delivery:</strong> Same-day or 24 hours via courier express.</p>
                       <p>• <strong>All Other Emirates (Abu Dhabi, Sharjah, Ajman, RAK, etc.):</strong> 1–2 business days.</p>
-                      <p>• <strong>Cards, Apple Pay & Cash on Delivery (COD):</strong> Pay securely online or at doorstep in AED.</p>
+                      <p>• <strong>Online Card Checkout:</strong> Secure checkout will be enabled when the payment gateway is approved.</p>
                       <p>• <strong>Free Delivery:</strong> Automatically applied at checkout on all orders above 150 AED.</p>
                     </div>
                   )}
@@ -514,7 +538,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                     onClick={() => toggleAccordion('reviews')}
                     className="w-full px-4 py-3 bg-neutral-50 flex items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-900 cursor-pointer"
                   >
-                    <span>Verified Reviews ({reviewsList.length})</span>
+                    <span>Product Reviews ({reviewsList.length})</span>
                     {openAccordions.reviews ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
                   {openAccordions.reviews && (
@@ -553,7 +577,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                       {/* Submit Review Form */}
                       <form onSubmit={handleSubmitReview} className="space-y-3 border-t border-neutral-100 pt-3">
                         <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-900">
-                          Leave a Verified Review
+                          Leave a Product Review
                         </h4>
                         <div className="flex items-center gap-2 text-xs">
                           <span className="text-neutral-500">Your Rating:</span>
@@ -569,6 +593,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                                   className={`w-4 h-4 ${star <= newReviewRating ? 'fill-amber-400 text-amber-400' : 'text-neutral-300'}`}
                                 />
                               </button>
+                     
                             ))}
                           </div>
                         </div>
@@ -604,9 +629,10 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                           <Send className="w-3 h-3" />
                           <span>Submit Review</span>
                         </button>
+                     
                         {reviewSubmitted && (
                           <p className="text-[11px] text-emerald-600 font-bold">
-                            ✓ Thank you! Your review has been submitted and verified.
+                            ✓ Thank you! Your review has been saved in this session.
                           </p>
                         )}
                       </form>
@@ -646,7 +672,7 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
                         onClick={() => setSelectedProductForDetail(rel)}
                         className="border border-neutral-200 p-2 cursor-pointer hover:border-black transition-colors bg-white group text-center"
                       >
-                        <img src={rel.image} alt={rel.name} className="w-full aspect-[3/4] object-cover mb-1" />
+                        <img src={rel.image} alt={rel.name} className="w-full aspect-3/4 object-cover mb-1" />
                         <p className="text-[10px] font-bold uppercase truncate text-neutral-900 group-hover:text-neutral-600">
                           {rel.name}
                         </p>
@@ -661,51 +687,9 @@ const ProductDetailContent: React.FC<ProductDetailModalProps> = ({ product, onCl
             </div>
           </div>
         </div>
-
-        {/* Sticky Mobile Add-to-Bag Action Bar */}
-        <div className="md:hidden sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-neutral-200 p-3 flex items-center justify-between gap-3 shadow-lg z-30">
-          <div className="min-w-0">
-            <span className="text-[10px] text-neutral-500 font-bold uppercase block truncate">
-              {selectedColor.name} · Size {selectedSize}
-            </span>
-            <span className="text-sm font-black text-neutral-900 tabular-nums">
-              {formatPrice(product.usdPrice * quantity, product.pkrPrice ? product.pkrPrice * quantity : undefined)}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => toggleWishlist(product)}
-              className={`p-2.5 border transition-colors cursor-pointer ${
-                isWishlisted
-                  ? 'border-red-500 bg-red-50 text-red-600'
-                  : 'border-neutral-300 text-neutral-800'
-              }`}
-              aria-label="Wishlist"
-            >
-              <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-red-500 text-red-500' : ''}`} />
-            </button>
-
-            <button
-              onClick={handleAdd}
-              disabled={isAdded}
-              className="py-2.5 px-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs font-black tracking-wider uppercase transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-            >
-              {isAdded ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>ADDED!</span>
-                </>
-              ) : (
-                <>
-                  <ShoppingBag className="w-3.5 h-3.5" />
-                  <span>ADD TO BAG</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
 };
+
+

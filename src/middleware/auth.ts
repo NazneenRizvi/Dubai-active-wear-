@@ -1,6 +1,12 @@
 
-import { Request, Response, NextFunction } from 'express';
-import firebaseConfig from '../../firebase-applet-config.json' with { type: 'json' };
+import type { Request, Response, NextFunction } from 'express';
+import {
+  initializeApp,
+  getApps,
+  applicationDefault,
+  cert,
+} from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -12,54 +18,82 @@ export interface AuthRequest extends Request {
   };
 }
 
+// Firebase Admin SDK must only run on the backend.
+const projectId =
+  process.env.FIREBASE_PROJECT_ID || 'icone-active-wear-2';
+
+const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+const adminApp =
+  getApps()[0] ||
+  initializeApp({
+    credential: serviceAccount
+      ? cert(JSON.parse(serviceAccount))
+      : applicationDefault(),
+    projectId,
+  });
+
+const adminAuth = getAuth(adminApp);
+
+async function verifyFirebaseToken(req: AuthRequest) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new Error('Missing authentication token');
+  }
+
+  const token = authHeader.substring(7).trim();
+
+  if (!token) {
+    throw new Error('Empty authentication token');
+  }
+
+  // Firebase Admin SDK verifies the ID token signature,
+  // expiration, issuer and Firebase project.
+  const decoded = await adminAuth.verifyIdToken(token, true);
+
+  req.user = {
+    uid: decoded.uid,
+    email: decoded.email?.toLowerCase().trim(),
+    name: decoded.name,
+    emailVerified: decoded.email_verified === true,
+    picture: decoded.picture,
+  };
+}
+
 export const requireAuth = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: Missing token' });
+  try {
+    await verifyFirebaseToken(req);
+    next();
+  } catch (error) {
+    console.warn('[Auth] Authentication failed');
+    return res.status(401).json({
+      error: 'Unauthorized: Please sign in again.',
+    });
   }
+};
 
-  const token = authHeader.split('Bearer ')[1]?.trim();
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized: Empty token' });
+export const optionalAuth = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.headers.authorization) {
+    return next();
   }
 
   try {
-    // Cryptographically verify token directly with Google Firebase Identity API
-    const verifyRes = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: token }),
-        signal: AbortSignal.timeout(6000),
-      }
-    );
-
-    if (!verifyRes.ok) {
-      return res.status(401).json({ error: 'Unauthorized: Invalid token signature or expired session' });
-    }
-
-    const data = (await verifyRes.json()) as any;
-    const verifiedUser = data.users?.[0];
-    if (!verifiedUser || !verifiedUser.localId) {
-      return res.status(401).json({ error: 'Unauthorized: User not found' });
-    }
-
-    req.user = {
-      uid: verifiedUser.localId,
-      email: verifiedUser.email?.toLowerCase().trim(),
-      name: verifiedUser.displayName,
-      emailVerified: verifiedUser.emailVerified,
-      picture: verifiedUser.photoUrl,
-    };
-
-    return next();
+    await verifyFirebaseToken(req);
+    next();
   } catch (error) {
-    console.error('[Security] Token verification error:', error);
-    return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
+    console.warn('[Auth] Invalid optional token');
+    return res.status(401).json({
+      error: 'Unauthorized: Invalid or expired session.',
+    });
   }
 };
+

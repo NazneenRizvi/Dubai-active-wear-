@@ -1,3 +1,4 @@
+import { orderReference } from '../lib/orderReference';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
@@ -15,7 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
-import { useCurrency } from '../context/CurrencyContext';
+import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
 import { useAuth } from '../context/AuthContext';
 import { Order } from '../types';
 
@@ -26,11 +27,12 @@ export const CheckoutModal: React.FC = () => {
     isCheckoutOpen,
     setIsCheckoutOpen,
     items,
+    updateQuantity,
+    removeFromCart,
     clearCart,
     subtotalUsd,
     discountUsd,
     shippingUsd,
-    totalUsd,
     addOrder,
     setIsCustomerOrdersOpen,
     ownerEmail,
@@ -38,7 +40,7 @@ export const CheckoutModal: React.FC = () => {
     promoCode
   } = useCart();
 
-  const { formatPrice, currency } = useCurrency();
+  const { currency, formatPrice, getRawPrice } = useCurrency();
   const { user } = useAuth();
 
   const [step, setStep] = useState<CheckoutStep>('shipping');
@@ -54,15 +56,30 @@ export const CheckoutModal: React.FC = () => {
     postalCode: '00000',
     country: 'United Arab Emirates',
     shippingMethod: 'standard' as 'standard' | 'express',
-    paymentMethod: 'credit_card' as 'cash_on_delivery' | 'credit_card' | 'apple_pay',
-    cardNumber: '4242 •••• •••• 4242',
-    cardExpiry: '12/28',
-    cardCvc: '888',
-    cardName: user?.name || ''
+    paymentMethod: 'credit_card' as 'credit_card'
   });
 
+  const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+  // All checkout rows and totals use the same currency and two-decimal arithmetic.
+  const lineAmount = (usdPrice: number, quantity: number, pkrPrice?: number) =>
+    roundMoney(getRawPrice(usdPrice * quantity, pkrPrice === undefined ? undefined : pkrPrice * quantity));
+  const displaySubtotal = roundMoney(items.reduce((sum, item) =>
+    sum + lineAmount(item.product.usdPrice, item.quantity, item.product.pkrPrice), 0));
+  const displayDiscount = roundMoney(getRawPrice(discountUsd));
+  const isFreeStandardShipping = shippingUsd === 0;
+  const displayShipping = isFreeStandardShipping ? 0 : formData.shippingMethod === 'express'
+    ? roundMoney(25 * CURRENCIES[currency].rateAgainstUsd / 3.67)
+    : currency === 'PKR' ? 250 : roundMoney(getRawPrice(5.99));
+  const displayTotal = roundMoney(Math.max(0, displaySubtotal - displayDiscount + displayShipping));
+  // Convert an already converted order amount back to USD for existing formatter.
+  const formatCurrencyAmount = (value: number) =>
+    formatPrice(value / CURRENCIES[currency].rateAgainstUsd);
+
+
+  const paymentApiUrl = (import.meta.env.VITE_PAYMENT_API_URL as string | undefined)?.trim()?.replace(/\/+$/, '') || '';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
+  const checkoutIdRef = useRef<string | null>(null);
 
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -124,84 +141,58 @@ export const CheckoutModal: React.FC = () => {
 
   const handlePlaceOrder = async () => {
     if (isSubmitting) return;
+    if (!paymentApiUrl) {
+      setErrorMessage('Online payments are not available yet. No order has been placed.');
+      return;
+    }
+    if (items.length === 0) {
+      setErrorMessage('Your bag is empty. Please add a product before checkout.');
+      return;
+    }
     setErrorMessage('');
     setIsSubmitting(true);
 
-    const orderId = `ICON-${crypto.randomUUID()}`;
-    const paymentApiUrl = (import.meta.env.VITE_PAYMENT_API_URL as string)?.trim()?.replace(/\/$/, '');
-
-    // If Stripe FastAPI backend is connected and customer chose Card payment
-    if (formData.paymentMethod === 'credit_card' && paymentApiUrl) {
-      try {
-        const response = await fetch(`${paymentApiUrl}/create-checkout-session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_id: orderId,
-            customer_email: formData.email,
-            customer_name: formData.fullName,
-            amount_aed: Math.round(totalUsd * 3.67),
-            items: items.map((i) => ({
-              name: i.product.name,
-              quantity: i.quantity,
-              price_aed: Math.round(i.product.usdPrice * 3.67)
-            })),
-            success_url: `${window.location.origin}?payment=success&orderId=${orderId}`,
-            cancel_url: `${window.location.origin}?payment=cancelled`
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.checkout_url) {
-            window.location.href = data.checkout_url;
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('FastAPI Stripe redirect fallback to in-app processing:', err);
-      }
+    if (!checkoutIdRef.current) {
+      checkoutIdRef.current = `ICON-${crypto.randomUUID()}`;
     }
+    const orderId = checkoutIdRef.current;
 
-    const newOrder: Order = {
-      id: orderId,
-      customerName: formData.fullName,
-      email: formData.email,
-      phone: formData.phone,
-      address: formData.address,
-      city: formData.city,
-      postalCode: formData.postalCode,
-      country: formData.country,
-      items: items.map((i) => ({
-        productId: i.product.id,
-        name: i.product.name,
-        color: i.selectedColor.name,
-        size: i.selectedSize,
-        quantity: i.quantity,
-        price: i.product.usdPrice,
-        image: i.product.image
-      })),
-      subtotal: subtotalUsd,
-      discount: discountUsd,
-      shipping: shippingUsd,
-      total: totalUsd,
-      currency: currency || 'AED',
-      paymentMethod: formData.paymentMethod,
-      status: 'confirmed',
-      createdAt: new Date().toISOString()
-    };
-
-    // Save order to store backend & database
+    // Payment session must be created by a trusted backend that calculates prices
+    // from its own product catalogue. No local payment confirmation fallback.
     try {
-      await addOrder(newOrder);
-      setCompletedOrder(newOrder);
-      clearCart();
+      const response = await fetch(`${paymentApiUrl}/create-checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: orderId,
+          customer_email: formData.email,
+          customer_name: formData.fullName,
+          amount_aed: Math.round(displayTotal * (3.67 / CURRENCIES[currency].rateAgainstUsd) * 100) / 100,
+          items: items.map(i => ({
+            product_id: i.product.id,
+            name: i.product.name,
+            quantity: i.quantity,
+            size: i.selectedSize,
+            color: i.selectedColor.name
+          })),
+          success_url: `${window.location.origin}?payment=success&orderId=${encodeURIComponent(orderId)}`,
+          cancel_url: `${window.location.origin}?payment=cancelled`
+        })
+      });
+      if (!response.ok) throw new Error('Payment service rejected the checkout request.');
+      const data = await response.json();
+      const destination = typeof data.checkout_url === 'string' ? data.checkout_url : '';
+      const url = new URL(destination);
+      if (url.protocol !== 'https:') throw new Error('Payment service returned an invalid secure checkout URL.');
+      window.location.assign(url.toString());
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Order could not be saved. Please retry.');
-    } finally { setIsSubmitting(false); }
+      setErrorMessage(error instanceof Error ? error.message : 'Payment could not be started.');
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
+    checkoutIdRef.current = null;
     setCompletedOrder(null);
     setStep('shipping');
     setErrorMessage('');
@@ -221,14 +212,14 @@ export const CheckoutModal: React.FC = () => {
       .map((i) => `• ${i.name} (${i.color}, Size ${i.size}) x${i.quantity}`)
       .join('\n');
     const msg = encodeURIComponent(
-      `*🛍️ ORDER CONFIRMED — ICON ACTIVEWEAR*\n` +
+      `*🛍️ ORDER UPDATE — DUBAI ACTIVEWEAR*\n` +
       `-----------------------------------------\n` +
-      `*Order ID:* ${completedOrder.id}\n` +
+      `*Order ID:* ${orderReference(completedOrder.id)}\n` +
       `*Customer:* ${completedOrder.customerName}\n` +
       `*Phone:* ${completedOrder.phone}\n` +
       `*Address:* ${completedOrder.address}, ${completedOrder.city}\n\n` +
       `*Items:*\n${itemsList}\n\n` +
-      `*Total COD:* ${formatPrice(completedOrder.total)}\n` +
+      `*Order Total:* ${formatCurrencyAmount(completedOrder.total)}\n` +
       `-----------------------------------------\n` +
       `Assalam-o-Alaikum Nazneen! Please dispatch this order to my address. Shukriya!`
     );
@@ -246,13 +237,7 @@ export const CheckoutModal: React.FC = () => {
         className="relative bg-white w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-none shadow-2xl border border-neutral-200 p-5 sm:p-8"
       >
         {/* Close Button */}
-        <button
-          onClick={handleClose}
-          className="absolute top-4 right-4 p-2 text-neutral-400 hover:text-black transition-colors cursor-pointer"
-          aria-label="Close checkout"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Close button moved to sticky header */}
 
         {completedOrder ? (
           /* ================= ORDER CONFIRMATION SCREEN ================= */
@@ -266,13 +251,13 @@ export const CheckoutModal: React.FC = () => {
 
             <div className="space-y-2">
               <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-600 font-bold bg-emerald-50 px-2.5 py-0.5 border border-emerald-200">
-                Payment & Order Verified
+                Order Details (Payment Unverified)
               </span>
               <h2 className="text-2xl sm:text-3xl font-black font-display tracking-tight text-neutral-900 uppercase">
                 Order Confirmed!
               </h2>
               <p className="text-xs text-neutral-600 max-w-sm mx-auto">
-                Thank you, <strong className="text-neutral-900">{completedOrder.customerName}</strong>! Your order reference is <strong className="font-mono text-black">{completedOrder.id}</strong>.
+                Thank you, <strong className="text-neutral-900">{completedOrder.customerName}</strong>! Your order reference is <strong className="font-mono text-black">{orderReference(completedOrder.id)}</strong>.
               </p>
             </div>
 
@@ -285,7 +270,7 @@ export const CheckoutModal: React.FC = () => {
               <div className="flex justify-between border-b border-neutral-200 pb-2">
                 <span className="text-neutral-500 uppercase tracking-wider text-[11px]">Payment Mode</span>
                 <span className="font-bold capitalize text-neutral-800">
-                  {completedOrder.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Card Payment'}
+                  Card Payment
                 </span>
               </div>
               <div className="flex justify-between border-b border-neutral-200 pb-2">
@@ -297,7 +282,7 @@ export const CheckoutModal: React.FC = () => {
               <div className="flex justify-between pt-1">
                 <span className="text-neutral-900 font-bold uppercase tracking-wider">Total Amount</span>
                 <span className="font-black text-sm text-neutral-900 tabular-nums">
-                  {formatPrice(completedOrder.total)}
+                  {formatCurrencyAmount(completedOrder.total)}
                 </span>
               </div>
             </div>
@@ -333,18 +318,31 @@ export const CheckoutModal: React.FC = () => {
             </div>
           </div>
         ) : (
-          /* ================= MULTI-STEP CHECKOUT FORM ================= */
+
           <div>
             {/* Header & Animated Step Indicator */}
-            <div className="mb-6 border-b border-neutral-200 pb-4">
+            <div className="sticky top-0 bg-white z-10 border-b border-neutral-200 pb-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl sm:text-2xl font-black font-display tracking-tight text-neutral-900 uppercase">
-                  Checkout
-                </h2>
-                <span className="text-xs font-mono text-neutral-400 font-bold uppercase">
-                  Step {step === 'shipping' ? '1' : step === 'payment' ? '2' : '3'} of 3
-                </span>
-              </div>
+  <button
+    onClick={handleClose}
+    className="text-xs text-neutral-500 hover:text-black underline"
+  >
+    ← Back to Cart
+  </button>
+  <h2 className="text-xl sm:text-2xl font-black font-display tracking-tight text-neutral-900 uppercase">
+    Checkout
+  </h2>
+  <span className="text-xs font-mono text-neutral-400 font-bold uppercase">
+    Step {step === 'shipping' ? '1' : step === 'payment' ? '2' : '3'} of 3
+  </span>
+  <button
+    onClick={handleClose}
+    className="p-2 text-neutral-500 hover:text-black"
+    aria-label="Close checkout"
+  >
+    <X className="w-5 h-5" />
+  </button>
+</div>
 
               {/* Progress Bar & Step Labels */}
               <div className="mt-4 space-y-2">
@@ -491,7 +489,7 @@ export const CheckoutModal: React.FC = () => {
                         </div>
                       </div>
                       <span className="text-xs font-bold text-emerald-700">
-                        {subtotalUsd >= 40.87 ? 'FREE' : formatPrice(shippingUsd)}
+                        {displayShipping === 0 ? 'FREE' : formatCurrencyAmount(displayShipping)}
                       </span>
                     </label>
 
@@ -521,9 +519,9 @@ export const CheckoutModal: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-4 flex items-center justify-between">
+                <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-2">
                   <div className="text-xs text-neutral-500">
-                    Total: <strong className="text-sm font-black text-black">{formatPrice(totalUsd)}</strong>
+                    Total: <strong className="text-sm font-black text-black">{formatCurrencyAmount(displayTotal)}</strong>
                   </div>
                   <button
                     type="submit"
@@ -564,94 +562,27 @@ export const CheckoutModal: React.FC = () => {
                         />
                         <div>
                           <p className="text-xs font-black uppercase text-neutral-900">
-                            Bank Card / Apple Pay (Stripe Gateway)
+                            Online card payment (secure checkout)
                           </p>
                           <p className="text-[11px] text-neutral-500">
-                            Visa, MasterCard, AMEX & all UAE bank cards accepted securely.
+                            Available payment methods depend on the approved payment provider.
                           </p>
                         </div>
                       </div>
                       <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 uppercase tracking-wider shrink-0">
-                        Popular in UAE 🇦🇪
+                        Online payment
                       </span>
                     </div>
 
-                    {formData.paymentMethod === 'credit_card' && (
-                      <div className="mt-3 pt-3 border-t border-neutral-200 space-y-3 animate-fade-in text-xs">
-                        <div>
-                          <label className="block text-[10px] font-bold uppercase text-neutral-600 mb-1">
-                            Card Number
-                          </label>
-                          <input
-                            type="text"
-                            name="cardNumber"
-                            value={formData.cardNumber}
-                            onChange={handleInputChange}
-                            placeholder="4242 •••• •••• 4242"
-                            className="w-full px-3 py-2 border border-neutral-300 font-mono text-xs focus:border-black focus:outline-hidden bg-white"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[10px] font-bold uppercase text-neutral-600 mb-1">
-                              Expiry Date
-                            </label>
-                            <input
-                              type="text"
-                              name="cardExpiry"
-                              value={formData.cardExpiry}
-                              onChange={handleInputChange}
-                              placeholder="MM/YY"
-                              className="w-full px-3 py-2 border border-neutral-300 font-mono text-xs focus:border-black focus:outline-hidden bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold uppercase text-neutral-600 mb-1">
-                              CVC / CVV
-                            </label>
-                            <input
-                              type="text"
-                              name="cardCvc"
-                              value={formData.cardCvc}
-                              onChange={handleInputChange}
-                              placeholder="888"
-                              className="w-full px-3 py-2 border border-neutral-300 font-mono text-xs focus:border-black focus:outline-hidden bg-white"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    <p className="mt-2 text-xs text-neutral-600">
+                      Card details will be entered only on the payment provider's secure hosted page.
+                    </p>
                   </label>
-
-                  {/* Option 2: Cash on Delivery (COD) */}
-                  <label
-                    className={`p-4 border block cursor-pointer transition-all ${
-                      formData.paymentMethod === 'cash_on_delivery'
-                        ? 'border-black bg-neutral-50 ring-1 ring-black'
-                        : 'border-neutral-300 hover:border-black'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value="cash_on_delivery"
-                          checked={formData.paymentMethod === 'cash_on_delivery'}
-                          onChange={handleInputChange}
-                          className="accent-black"
-                        />
-                        <div>
-                          <p className="text-xs font-black uppercase text-neutral-900">
-                            Cash on Delivery (COD in AED)
-                          </p>
-                          <p className="text-[11px] text-neutral-600 mt-0.5">
-                            Pay exact cash to the courier rider upon delivery across Dubai and UAE.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </label>
+                  {!paymentApiUrl && (
+                    <p role="status" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 p-3">
+                      Online payments are not configured yet. Checkout is temporarily unavailable.
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-4 flex items-center justify-between">
@@ -698,7 +629,7 @@ export const CheckoutModal: React.FC = () => {
                     <div>
                       <span className="text-[10px] text-neutral-500 uppercase font-mono">Payment Mode</span>
                       <p className="font-bold text-neutral-900">
-                        {formData.paymentMethod === 'cash_on_delivery' ? 'Cash on Delivery (COD)' : 'Credit / Debit Card (Stripe / Bank Card)'}
+                        Secure Online Card Payment
                       </p>
                     </div>
                     <button
@@ -713,16 +644,24 @@ export const CheckoutModal: React.FC = () => {
                   <div className="space-y-2 py-1">
                     <span className="text-[10px] text-neutral-500 uppercase font-mono">Items ({items.length})</span>
                     {items.map((i) => (
-                      <div key={i.id} className="flex items-center justify-between text-xs">
+                      <div key={i.id} className="flex items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2 min-w-0">
                           <img src={i.product.image} alt={i.product.name} className="w-9 h-10 object-cover border border-neutral-200 shrink-0" />
                           <div className="truncate">
                             <p className="font-bold truncate text-neutral-900">{i.product.name}</p>
-                            <p className="text-[10px] text-neutral-500">{i.selectedColor.name} · Size {i.selectedSize} · Qty {i.quantity}</p>
+                            <p className="text-[10px] text-neutral-500">{i.selectedColor.name} · Size {i.selectedSize}</p>
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className="inline-flex items-center border border-neutral-300 bg-white" aria-label={`Quantity for ${i.product.name}`}>
+                                <button type="button" aria-label={`Decrease ${i.product.name} quantity`} disabled={i.quantity <= 1} onClick={() => updateQuantity(i.id, i.quantity - 1)} className="px-3 py-2 disabled:opacity-30 hover:bg-neutral-100">−</button>
+                                <span className="px-2 tabular-nums font-bold">{i.quantity}</span>
+                                <button type="button" aria-label={`Increase ${i.product.name} quantity`} disabled={i.quantity >= 10} onClick={() => updateQuantity(i.id, Math.min(10, i.quantity + 1))} className="px-3 py-2 disabled:opacity-30 hover:bg-neutral-100">+</button>
+                              </div>
+                              <button type="button" onClick={() => removeFromCart(i.id)} className="text-red-700 underline text-[10px]">Remove</button>
+                            </div>
                           </div>
                         </div>
                         <span className="font-bold text-neutral-900 tabular-nums shrink-0 ml-2">
-                          {formatPrice(i.product.usdPrice * i.quantity)}
+                          {formatCurrencyAmount(lineAmount(i.product.usdPrice, i.quantity, i.product.pkrPrice))}
                         </span>
                       </div>
                     ))}
@@ -732,21 +671,21 @@ export const CheckoutModal: React.FC = () => {
                   <div className="pt-2 border-t border-neutral-200 space-y-1 text-right">
                     <div className="flex justify-between text-[11px] text-neutral-600">
                       <span>Subtotal</span>
-                      <span className="font-mono">{formatPrice(subtotalUsd)}</span>
+                      <span className="font-mono">{formatCurrencyAmount(displaySubtotal)}</span>
                     </div>
                     {discountUsd > 0 && (
                       <div className="flex justify-between text-[11px] text-emerald-700 font-bold">
                         <span>Discount ({promoCode})</span>
-                        <span className="font-mono">-{formatPrice(discountUsd)}</span>
+                        <span className="font-mono">-{formatCurrencyAmount(displayDiscount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-[11px] text-neutral-600">
                       <span>Shipping Fee</span>
-                      <span className="font-mono">{shippingUsd === 0 ? 'FREE' : formatPrice(shippingUsd)}</span>
+                      <span className="font-mono">{displayShipping === 0 ? 'FREE' : formatCurrencyAmount(displayShipping)}</span>
                     </div>
                     <div className="flex justify-between text-sm font-black text-neutral-900 pt-1 border-t border-neutral-200">
-                      <span>Total Amount (COD)</span>
-                      <span className="tabular-nums">{formatPrice(totalUsd)}</span>
+                      <span>Total Amount</span>
+                      <span className="tabular-nums">{formatCurrencyAmount(displayTotal)}</span>
                     </div>
                   </div>
                 </div>
@@ -764,13 +703,13 @@ export const CheckoutModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={handlePlaceOrder}
-                    disabled={isSubmitting}
-                    className="relative overflow-hidden px-8 py-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs sm:text-sm font-black tracking-widest uppercase transition-all shadow-md flex items-center gap-2 cursor-pointer group"
+                    disabled={isSubmitting || !paymentApiUrl || items.length === 0}
+                    className="relative overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed px-8 py-4 bg-black hover:bg-neutral-800 active:scale-95 text-white text-xs sm:text-sm font-black tracking-widest uppercase transition-all shadow-md flex items-center gap-2 cursor-pointer group"
                   >
                     {/* Shimmer sweep animation */}
                     <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 ease-in-out pointer-events-none" />
                     <Lock className="w-4 h-4 text-emerald-400" />
-                    <span>PLACE ORDER · {formatPrice(totalUsd)}</span>
+                    <span>{isSubmitting ? 'OPENING SECURE PAYMENT…' : `PROCEED TO PAYMENT · ${formatCurrencyAmount(displayTotal)}`}</span>
                   </button>
                 </div>
               </div>
